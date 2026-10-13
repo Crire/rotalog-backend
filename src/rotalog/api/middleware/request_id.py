@@ -1,32 +1,36 @@
+"""Correlação de requisições por UUID."""
+
 from uuid import UUID, uuid4
 
-
-from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.requests import Request
-from starlette.types import ASGIApp
+from starlette.responses import Response
+
+REQUEST_ID_HEADER = "X-Request-Id"
 
 
 class RequestIDMiddleware(BaseHTTPMiddleware):
-    def __init__(self, app: ASGIApp) -> None:
-        super().__init__(app)
+    """Propaga um request ID válido ou gera um UUID4."""
 
-    async def dispatch(self, request: Request, call_next): 
-        receive_request_id = request.headers.get("X-Request-ID")
-        request_id = self.resolve_request_id(receive_request_id)
-
+    async def dispatch(
+        self,
+        request: Request,
+        call_next: RequestResponseEndpoint,
+    ) -> Response:
+        received_request_id = request.headers.get(REQUEST_ID_HEADER)
+        request_id = self._resolve_request_id(received_request_id)
         request.state.request_id = request_id
 
         response = await call_next(request)
-        response.headers["X-Request-ID"] = request_id
-
-        return message
+        response.headers[REQUEST_ID_HEADER] = request_id
+        return response
 
     @staticmethod
     def _resolve_request_id(received_request_id: str | None) -> str:
         if received_request_id:
             try:
-                return str(UUID(receive_request_id))
+                return str(UUID(received_request_id))
             except ValueError:
                 pass
 
-            return str(uuid4())
+        return str(uuid4())

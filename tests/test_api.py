@@ -1,8 +1,9 @@
 """Testes do bootstrap e dos endpoints técnicos da API."""
 
 import asyncio
+from uuid import UUID, uuid4
 
-from httpx import ASGITransport, AsyncClient
+from httpx import ASGITransport, AsyncClient, Response
 
 from rotalog.api.main import create_app
 from rotalog.core.config import Environment, Settings
@@ -28,16 +29,32 @@ def test_create_app_uses_validated_settings() -> None:
 def test_health_check_reports_process_availability() -> None:
     app = create_app(Settings(_env_file=None, environment=Environment.TEST))
 
-    async def request_health() -> tuple[int, dict[str, str]]:
+    async def request_health(headers: dict[str, str] | None = None) -> Response:
         transport = ASGITransport(app=app)
         async with AsyncClient(
             transport=transport,
             base_url="http://testserver",
         ) as client:
-            response = await client.get("/health")
-            return response.status_code, response.json()
+            return await client.get("/health", headers=headers)
 
-    status_code, payload = asyncio.run(request_health())
+    response = asyncio.run(request_health())
 
-    assert status_code == 200
-    assert payload == {"status": "ok"}
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok"}
+    assert UUID(response.headers["X-Request-Id"]).version == 4
+
+    supplied_request_id = str(uuid4())
+    response = asyncio.run(request_health({"X-Request-Id": supplied_request_id}))
+
+    assert response.headers["X-Request-Id"] == supplied_request_id
+
+
+def test_openapi_uses_canonical_error_contract() -> None:
+    app = create_app(Settings(_env_file=None, environment=Environment.TEST))
+
+    schema = app.openapi()
+
+    assert "ErrorResponse" in schema["components"]["schemas"]
+    assert schema["paths"]["/health"]["get"]["responses"]["422"]["content"] == {
+        "application/json": {"schema": {"$ref": "#/components/schemas/ErrorResponse"}}
+    }
