@@ -1,10 +1,9 @@
-"""Bootstrap da aplicação FastAPI."""
-
 from fastapi import FastAPI
 
 from rotalog.api.health import router as health_router
 from rotalog.core.config import Settings, get_settings
-
+from rotalog.api.middleware import request_id
+from rotalog.api.router import router as api_router
 
 def create_app(settings: Settings | None = None) -> FastAPI:
     """Cria e configura uma instância da API."""
@@ -22,3 +21,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
 
 app = create_app()
+app.add_middleware(request_id)
+register_exception_handlers(app)
+app.include_router(api_router, prefix="/api/v1")
