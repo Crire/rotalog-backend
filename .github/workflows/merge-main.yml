@@ -10,15 +10,15 @@ permissions:
 jobs:
   build-main:
     name: Build e testes da main
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
 
     steps:
       - name: Obter código-fonte
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Configurar Python 3.13
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: "3.13"
           cache: pip
@@ -38,7 +38,7 @@ jobs:
 
       - name: Testes
         run: |
-          if find tests -type f -name 'test_*.py' -o -name '*_test.py' 2>/dev/null | grep -q .; then
+          if find tests -type f \( -name 'test_*.py' -o -name '*_test.py' \) 2>/dev/null | grep -q .; then
             python -m pytest
           else
             echo "Nenhum teste Python encontrado; etapa concluída sem testes para executar."
