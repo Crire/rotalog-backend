@@ -191,6 +191,39 @@ O catálogo lê quatro ofertas reais do banco (arroz, feijão, açúcar e óleo)
 A rota `/api/v1/offers` é um alias para a convenção da V4.1. Use `page` (mínimo 1)
 e `page_size` (padrão 25, máximo 100). Valores monetários são strings decimais no JSON.
 
+### Cadastro e gerenciamento básico pelo Swagger
+
+Com o seed inicializado e a demo habilitada, `POST /api/v1/auth/register` permite
+cadastrar novas contas sintéticas de `comprador` ou `fornecedor` (distribuidor).
+Informe `email` (domínio terminado em `.invalid`), `password` (12 a 1024 caracteres),
+`name`, `organization_name` e `role`. Cada cadastro cria uma organização própria na
+mesma execução sintética do seed. Email duplicado retorna 409 e não deixa uma
+organização órfã. Não há autocadastro de motorista/administrador neste endpoint.
+
+Depois, faça login com o email em `username` e a senha cadastrada. Como fornecedor:
+
+1. `POST /api/v1/products` com `{"name": "Pizza"}` retorna o `id` do produto.
+2. `POST /api/v1/ofertas` com `product_id`, `unit_price: "29.90"`,
+   `minimum_order_quantity: 1` e `available_quantity: 20` cria oferta e saldo inicial
+   na organização do usuário autenticado. Não envie ID de organização no corpo.
+3. `GET /api/v1/ofertas/{id}/estoque` consulta saldo declarado, reservado e disponível.
+4. `PATCH /api/v1/ofertas/{id}/estoque` com `{"available_quantity": 30}` define o
+   novo saldo **total declarado**, não uma entrada/saída incremental.
+5. `GET /api/v1/ofertas` confirma o saldo disponível para compra.
+
+O campo `available_quantity` de entrada representa o total declarado; na resposta,
+`declared_quantity` expõe esse total e `available_quantity` é total menos reservas.
+Reservas não podem ser alteradas por este endpoint. Quantidades devem ser inteiros
+não negativos; não é permitido reduzir o total abaixo do reservado (409). A escrita
+trava a linha do estoque durante a transação. Compradores/motoristas não alteram
+produtos/ofertas/estoque (403); outro fornecedor não consulta o estoque privado nem
+altera sua oferta (404). O catálogo compartilhado continua visível na mesma demo.
+Os aliases em inglês são `POST /api/v1/offers` e
+`GET/PATCH /api/v1/offers/{id}/inventory`.
+
+Essas rotas são exclusivas da demonstração sintética, não um cadastro comercial de
+empresas reais. Produtos, ofertas e contas novos permanecem vinculados à DemoRun.
+
 ## Testes e CI
 
 ```bash

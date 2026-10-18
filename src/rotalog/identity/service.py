@@ -13,14 +13,61 @@ from rotalog.core.config import Settings
 from rotalog.core.database import transactional_session
 from rotalog.core.errors import RotaLogError
 from rotalog.demo.models import DemoRun
-from rotalog.identity.models import LoginThrottle, User
-from rotalog.identity.schemas import TokenResponse, UserResponse
+from rotalog.demo.service import require_active_run
+from rotalog.identity.models import LoginThrottle, Role, User
+from rotalog.identity.schemas import RegisterRequest, TokenResponse, UserResponse
 from rotalog.identity.security import (
     create_access_token,
     decode_access_token,
     password_hash,
     require_demo,
 )
+from rotalog.organizations.models import Organization
+
+
+def register(
+    data: RegisterRequest,
+    factory: sessionmaker[Session],
+    settings: Settings,
+) -> UserResponse:
+    require_demo(settings)
+    hashed_password = password_hash.hash(data.password.get_secret_value())
+    with transactional_session(factory) as session:
+        run_id = require_active_run(session)
+        organization = Organization(name=data.organization_name, demo_run_id=run_id)
+        session.add(organization)
+        session.flush()
+        user = session.scalar(
+            insert(User)
+            .values(
+                email=data.email,
+                name=data.name,
+                password_hash=hashed_password,
+                role=data.role,
+                organization_id=organization.id,
+                demo_run_id=run_id,
+            )
+            .on_conflict_do_nothing(index_elements=[User.email])
+            .returning(User)
+        )
+        if user is None:
+            # A organização criada acima também sofre rollback no conflito.
+            raise RotaLogError(
+                code="EMAIL_ALREADY_REGISTERED",
+                message="Email já cadastrado.",
+                status_code=409,
+            )
+        return UserResponse.model_validate(user)
+
+
+def require_supplier(user: UserResponse) -> None:
+    """Papéis vêm do usuário autenticado no banco, nunca do corpo da requisição."""
+    if user.role != Role.SUPPLIER:
+        raise RotaLogError(
+            code="SUPPLIER_REQUIRED",
+            message="Operação exclusiva de fornecedores.",
+            status_code=403,
+        )
 
 
 @lru_cache(maxsize=1)

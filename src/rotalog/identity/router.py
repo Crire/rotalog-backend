@@ -10,10 +10,20 @@ from rotalog.identity.dependencies import (
     CurrentUser,
     SessionFactory,
 )
-from rotalog.identity.schemas import TokenResponse, UserResponse
-from rotalog.identity.service import login
+from rotalog.identity.schemas import RegisterRequest, TokenResponse, UserResponse
+from rotalog.identity.service import login, register
 
 router = APIRouter(prefix="/auth", tags=["autenticação"])
+
+
+@router.post("/register", response_model=UserResponse, status_code=201)
+def register_user(
+    data: RegisterRequest,
+    factory: SessionFactory,
+    settings: ApplicationSettings,
+) -> UserResponse:
+    """Cadastra comprador/fornecedor sintético, com uma organização nova na demo ativa."""
+    return register(data, factory, settings)
 
 
 @router.post("/login", response_model=TokenResponse, summary="Login da demonstração")
