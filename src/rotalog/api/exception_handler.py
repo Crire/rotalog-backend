@@ -36,6 +36,7 @@ def _error_response(
     code: str,
     message: str,
     details: dict[str, Any] | None = None,
+    headers: dict[str, str] | None = None,
 ) -> JSONResponse:
     request_id = _request_id(request)
     payload = ErrorResponse(
@@ -49,7 +50,7 @@ def _error_response(
     return JSONResponse(
         status_code=status_code,
         content=payload.model_dump(mode="json"),
-        headers={REQUEST_ID_HEADER: request_id},
+        headers={REQUEST_ID_HEADER: request_id, **(headers or {})},
     )
 
 
@@ -63,6 +64,9 @@ async def _handle_rotalog_error(
         code=exception.code,
         message=exception.message,
         details=exception.details,
+        headers={"WWW-Authenticate": "Bearer"}
+        if exception.status_code == 401
+        else None,
     )
 
 
@@ -86,6 +90,7 @@ async def _handle_http_error(
         code="HTTP_ERROR",
         message=message,
         details=details,
+        headers=exception.headers,
     )
 
 
@@ -98,7 +103,12 @@ async def _handle_validation_error(
         status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
         code="REQUEST_VALIDATION_ERROR",
         message="A requisição possui campos inválidos.",
-        details={"errors": jsonable_encoder(exception.errors())},
+        details={
+            "errors": [
+                {"loc": list(error["loc"]), "type": error["type"], "msg": error["msg"]}
+                for error in exception.errors()
+            ],
+        },
     )
 
 

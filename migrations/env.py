@@ -6,7 +6,7 @@ from alembic import context
 from sqlalchemy import pool
 from sqlalchemy.engine import Connection, create_engine
 
-import rotalog.marketplace.models  # noqa: F401
+import rotalog.core.models  # noqa: F401
 from rotalog.core.config import get_settings
 from rotalog.core.database import Base
 

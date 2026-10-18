@@ -18,6 +18,11 @@ class Product(UuidPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "product"
 
     name: Mapped[str] = mapped_column(String(200), nullable=False)
+    demo_run_id: Mapped[UUID | None] = mapped_column(
+        Uuid(),
+        ForeignKey("demo_run.id", ondelete="RESTRICT"),
+        index=True,
+    )
 
 
 class Offer(UuidPrimaryKeyMixin, TimestampMixin, Base):
@@ -48,6 +53,11 @@ class Offer(UuidPrimaryKeyMixin, TimestampMixin, Base):
         nullable=False,
     )
     minimum_order_quantity: Mapped[int] = mapped_column(Integer, nullable=False)
+    demo_run_id: Mapped[UUID | None] = mapped_column(
+        Uuid(),
+        ForeignKey("demo_run.id", ondelete="RESTRICT"),
+        index=True,
+    )
 
 
 class InventoryBalance(UuidPrimaryKeyMixin, TimestampMixin, Base):
@@ -81,4 +91,9 @@ class InventoryBalance(UuidPrimaryKeyMixin, TimestampMixin, Base):
         nullable=False,
         default=0,
         server_default="0",
+    )
+    demo_run_id: Mapped[UUID | None] = mapped_column(
+        Uuid(),
+        ForeignKey("demo_run.id", ondelete="RESTRICT"),
+        index=True,
     )
