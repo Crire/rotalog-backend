@@ -8,9 +8,12 @@ version = "0.1.0"
 description = "API backend do RotaLog"
 requires-python = ">=3.13,<3.14"
 dependencies = [
+    "alembic>=1.14,<2",
     "fastapi[standard]>=0.115,<1.0",
     "pydantic>=2,<3",
     "pydantic-settings>=2,<3",
+    "pwdlib[argon2]>=0.3,<1",
+    "PyJWT>=2.10,<3",
     "psycopg[binary]>=3.2,<4",
     "SQLAlchemy>=2,<2.1",
     "uvicorn[standard]>=0.30,<1.0",
@@ -18,3 +21,7 @@ dependencies = [
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/rotalog"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]

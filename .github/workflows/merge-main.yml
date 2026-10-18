@@ -12,6 +12,27 @@ jobs:
     name: Build e testes da main
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    env:
+      ROTALOG_ENVIRONMENT: test
+      ROTALOG_DATABASE_URL: postgresql+psycopg://rotalog:ci_only@localhost:5432/rotalog_test
+      ROTALOG_TEST_DATABASE_URL: postgresql+psycopg://rotalog:ci_only@localhost:5432/rotalog_test
+      ROTALOG_JWT_SECRET: ci-only-synthetic-token-key-never-use-in-production
+      ROTALOG_DEMO_ENABLED: "true"
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: rotalog
+          POSTGRES_PASSWORD: ci_only
+          POSTGRES_DB: rotalog_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U rotalog -d rotalog_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
 
     steps:
       - name: Obter código-fonte
@@ -31,7 +52,7 @@ jobs:
           python -m pip install pytest
 
       - name: Build de produção
-        run: python -m compileall -q src
+        run: python -m compileall -q src migrations
 
       - name: Validar importação da aplicação
         run: PYTHONPATH=src python -c "from rotalog.api.main import app; assert app.title == 'RotaLog API'"
@@ -43,3 +64,10 @@ jobs:
           else
             echo "Nenhum teste Python encontrado; etapa concluída sem testes para executar."
           fi
+
+      - name: Validar migrações versionadas
+        run: |
+          python -m alembic upgrade head
+          python -m alembic check
+          python -m alembic downgrade base
+          python -m alembic upgrade head

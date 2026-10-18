@@ -1,5 +1,10 @@
 # Reorganização em camadas globais
 
+> Registro histórico de 09/09/2026, superado pela V4.1. A arquitetura vigente é o
+> monólito modular descrito no [README](../../README.md), com `core/`, `identity/`,
+> `marketplace/` e demais módulos diretamente em `src/rotalog/`. Esta proposta não
+> deve orientar novas mudanças de estrutura.
+
 ## Objetivo
 
 Reorganizar o pacote Python do RotaLog para usar camadas globais dentro de `src/rotalog`, preservando o monólito modular e os módulos de negócio existentes.
