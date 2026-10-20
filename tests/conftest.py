@@ -8,6 +8,7 @@ from uuid import uuid4
 import pytest
 from alembic import command
 from alembic.config import Config
+from dotenv import load_dotenv
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import make_url
@@ -15,6 +16,7 @@ from sqlalchemy.engine import make_url
 from rotalog.core.config import Environment, Settings
 
 # Configuração explícita do bootstrap de teste; não abre conexão.
+load_dotenv(Path(__file__).resolve().parents[1] / ".env")
 os.environ.setdefault(
     "ROTALOG_DATABASE_URL", "postgresql+psycopg://localhost/rotalog_test"
 )
@@ -63,6 +65,7 @@ def demo_settings(database_url: str) -> Settings:
         environment=Environment.TEST,
         demo_enabled=True,
         jwt_secret="test-only-jwt-secret-with-at-least-32-bytes",
+        cors_origins=["http://localhost:5173"],
     )
 
 

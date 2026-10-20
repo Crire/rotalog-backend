@@ -1,0 +1,11 @@
+# Copie/adapte no host do proxy. Troque o domínio por um domínio sob seu controle.
+# O Caddy obtém certificado HTTPS; a API continua acessível apenas por loopback.
+api.demo.SEUDOMINIO {
+    reverse_proxy 127.0.0.1:8000
+    header {
+        Strict-Transport-Security "max-age=31536000"
+        X-Content-Type-Options "nosniff"
+        Referrer-Policy "no-referrer"
+        X-Frame-Options "DENY"
+    }
+}

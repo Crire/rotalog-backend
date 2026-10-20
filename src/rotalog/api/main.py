@@ -4,6 +4,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from rotalog.api.exception_handler import (
     DEFAULT_ERROR_RESPONSES,
@@ -39,6 +40,22 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     application.state.settings = app_settings
     application.state.session_factory = create_session_factory(engine)
+    if app_settings.cors_origins:
+        application.add_middleware(
+            CORSMiddleware,
+            allow_origins=app_settings.cors_origins,
+            allow_credentials=True,
+            allow_methods=["GET", "POST", "DELETE"],
+            allow_headers=[
+                "Authorization",
+                "Content-Type",
+                "X-Organization-Id",
+                "X-Request-Id",
+                "X-CSRF-Token",
+                "Idempotency-Key",
+            ],
+            expose_headers=["X-Request-Id"],
+        )
     application.add_middleware(RequestIDMiddleware)
     register_exception_handlers(application)
     application.include_router(health_router)

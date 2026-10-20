@@ -9,4 +9,3 @@ class HealthResponse(BaseModel):
     """Resposta do endpoint de saúde."""
 
     status: Literal["ok"]
-

@@ -1,0 +1,169 @@
+ROTALOG — COLEÇÃO POSTMAN DA DEMO V5
+===================================
+
+ARQUIVOS
+  RotaLog_Demo_V5.postman_collection.json — coleção no formato Postman 2.1.
+  RotaLog_Local.postman_environment.json — ambiente local, sem secrets preenchidos.
+  GUIA_SWAGGER_FASTAPI.txt — instruções para executar as mesmas operações no Swagger.
+
+A coleção contém 65 requisições de exemplo e cobre as 42 operações HTTP publicadas
+pelo backend atual. Há repetições intencionais para logins, consultas, versões e
+fluxos alternativos. Não documenta endpoints futuros como se já estivessem ativos.
+Todos os dados são sintéticos e todos os pagamentos são simulados.
+
+1. PRÉ-REQUISITOS
+----------------
+Inicie PostgreSQL 17 e a API conforme o README do backend. Execute migrations e seed.
+O seed cria admin@demo.rotalog.invalid com a senha que VOCÊ definiu. Não existe senha
+padrão. Esta coleção não sobe o servidor, não cria o banco nem executa o seed.
+
+Backend:
+  /home/crire/Projects/rotalog/Backend/rotalog-backend
+
+URLs locais padrão:
+  http://localhost:8000/health
+  http://localhost:8000/docs
+  http://localhost:8000/openapi.json
+
+2. IMPORTAÇÃO E CONFIGURAÇÃO
+---------------------------
+No Postman, use Import para importar os DOIS arquivos .json. Selecione o ambiente
+"RotaLog Demo V5 — local" no seletor de ambiente, não apenas a coleção.
+
+Configure os valores LOCALMENTE:
+  base_url             http://localhost:8000 (sem /api/v1 e sem barra final)
+  admin_password       senha escolhida para o administrador no seed
+  run_optional_actions false
+  run_browser_examples false
+  allow_remote_demo    false
+
+Não cole as chaves ROTALOG_JWT_SECRET ou do banco no Postman; elas não são
+necessárias. Use somente a senha de uma conta sintética de demonstração.
+
+Os campos de senha/token estão vazios e marcados como secretos no ambiente.
+Mantenha esses valores locais/privados. Mascarar um valor NÃO impede que ele seja
+incluído em um export ou compartilhamento: nunca exporte ambiente preenchido,
+publique tokens no Console, sincronize secrets com colegas ou os coloque no Git.
+Não importe esta coleção em um workspace compartilhado com secrets reais.
+
+3. EXECUTAR O FLUXO PRINCIPAL
+----------------------------
+Use Send em ordem, ou Collection Runner com as pastas 00 a 07 selecionadas.
+No Runner, configure UMA iteração, execução sequencial e interrompa se houver erro.
+Os scripts guardam automaticamente os IDs, versões, tokens e chaves necessárias.
+Se uma requisição falhar, corrija-a antes de seguir; não use valores de outro cenário.
+
+  00 — Health e preparação: cria identificador e emails únicos; não limpa o banco.
+  01 — Administrador faz login, cadastra a variante da Pizza e a publica.
+  02 — Nova distribuidora é cadastrada, faz login e cria seu depósito.
+  03 — Administrador confirma as coordenadas SINTÉTICAS do depósito.
+  04 — Distribuidora publica oferta, declara estoque e cria capacidade manual.
+  05 — Novo comprador faz login, consulta catálogo/distribuidoras, reserva e compra.
+  06 — Distribuidora encontra o pedido, aceita, separa e deixa pronto para despacho.
+  07 — Comprador lista sessões, renova refresh e encerra a sessão atual.
+
+Resultado padrão esperado:
+  Produto: Pizza — mistura seca lacrada 400 g.
+  Quantidade comprada: 3 unidades a R$ 29,90.
+  Total: R$ 89,70; moeda BRL; provedor SIMULATED.
+  Estoque total: 20; reservado: 3; disponível: 17.
+  Pedido: READY_TO_DISPATCH; NÃO significa entrega realizada.
+
+Execute novamente 00 somente para iniciar OUTRO cenário. Ela muda emails/chaves e
+zera as referências locais, sem apagar contas, produtos, pedidos ou estoque no banco.
+Se houver conflito em cadastro (409), não repita cadastros já concluídos para
+continuar o mesmo cenário; faça login ou inicie conscientemente um novo cenário.
+
+As requisições protegidas usam o token e X-Organization-Id do ator indicado no nome
+da pasta. Não é necessário trocar manualmente o token a cada mudança de papel.
+Contas sintéticas novas usam senhas geradas na preparação se os campos estiverem
+vazios. O administrador NÃO recebe senha gerada pela coleção: informe a do seed.
+
+4. PASTAS OPCIONAIS — DESATIVADAS POR PADRÃO
+------------------------------------------
+As pastas 08 a 10 só são enviadas se run_optional_actions tiver o texto "true".
+A pasta 11 só é enviada se run_browser_examples tiver o texto "true".
+Sem isso, pm.execution.skipRequest() pula essas requisições, inclusive no Runner.
+Use Postman/runner com suporte a essa função. Se não houver suporte, não selecione
+essas pastas; não remova a proteção para executar a coleção inteira sem revisão.
+
+  08 — Cria OUTRO checkout/pedido e testa cancelamento antes do aceite.
+       O pedido já preparado no fluxo principal não é elegível para esse cancelamento.
+  09 — Muda preço, ajusta capacidade e PAUSA a oferta. Execute depois das compras.
+       A pausa é persistente e a versão atual não possui rota de retomada.
+  10 — Abre sessão auxiliar, revoga dispositivo, testa logout-all e troca a senha
+       SOMENTE da conta sintética criada pelo cenário. Atualiza buyer_password
+       no ambiente e invalida todas as sessões dessa conta.
+  11 — Login/refresh/logout no modo de navegador, com cookie e CSRF.
+
+Se habilitar todas, mantenha a ordem 08 -> 09 -> 10 -> 11. Após uma ação sensível,
+não repita a pasta cegamente: estado, senha e versões podem ter mudado. Prefira um
+novo cenário 00 a 07 quando quiser repetir o teste principal.
+
+5. TOKENS, COOKIES, IDEMPOTÊNCIA E VERSÕES
+----------------------------------------
+Access JWT dura 10 minutos. Se expirar, repita o login do papel correspondente.
+O refresh só pode ser usado uma vez; o script salva o novo. Reutilizar o antigo
+revoga a família da sessão. Logout também invalida imediatamente os access tokens.
+
+Antes do fluxo NATIVO, remova cookies rotalog_refresh antigos do cookie jar do
+Postman para o host da API. A API rejeita refresh recebido simultaneamente no corpo
+e no cookie. Modo nativo usa refresh no JSON; modo navegador usa APENAS cookie.
+
+Na pasta 11:
+  - mantenha cookie jar habilitado;
+  - browser_origin deve corresponder EXATAMENTE à allowlist ROTALOG_CORS_ORIGINS;
+  - exemplo local: http://localhost:5173;
+  - refresh/logout enviam Origin e X-CSRF-Token, sem Bearer e sem corpo;
+  - HTTP local exige ROTALOG_COOKIE_SECURE=false;
+  - demo online exige HTTPS, ROTALOG_COOKIE_SECURE=true e origens HTTPS exatas.
+
+Postman testa o protocolo, mas não reproduz todas as políticas de um navegador.
+Em um navegador real use localhost nos dois lados, ou 127.0.0.1 nos dois lados;
+não misture hosts. Online, portal/API devem ficar no mesmo site registrável para
+o cookie SameSite=Lax desta baseline.
+
+Idempotency-Key é gerada por cenário para checkout, confirmação e aceite. Reenvie
+a MESMA chave com o MESMO corpo para repetir uma intenção sem duplicar efeitos.
+Não gere outra chave apenas porque houve timeout. Chave igual com corpo diferente
+retorna 409 IDEMPOTENCY_KEY_REUSED. Intenções novas precisam de chaves novas.
+
+expected_version é um inteiro. Cada agregado tem sua própria versão: produto,
+depósito, oferta, projeção de estoque, capacidade, pedido e fulfillment. Reservas
+podem alterar estoque/capacidade, e comandos de preparação alteram pedido e lote.
+Em um 409 de versão, consulte novamente o recurso; não incremente números por palpite.
+
+6. PAGINAÇÃO E SINTÉTICOS
+------------------------
+page_size é 25 por padrão e no máximo 100. GET /suppliers lista UMA página. Para
+ver todas as distribuidoras, incremente page até page * page_size >= total.
+Os filtros de /offers incluem product_id, supplier_id, region e janela opcional.
+Dinheiro é string no JSON ("29.90"), nunca número (29.90). Quantidades são inteiros.
+
+Para demo remota, ajuste base_url para HTTPS e allow_remote_demo=true. Use somente
+uma demo sintética que você tem autorização para testar. A coleção cria registros
+persistentes e não faz limpeza automática. Não aponte para contas/dados reais.
+
+7. ERROS MAIS COMUNS
+-------------------
+  Conexão recusada: API não iniciada ou base_url/porta incorretos.
+  401: token ausente, expirado, revogado ou refresh reutilizado.
+  403: papel incorreto; vínculo não autorizado; demo desabilitada; origem/CSRF inválido.
+  404: ID de outro cenário/organização, recurso inexistente ou rota antiga.
+  409: versão/estado, duplicidade, idempotência, saldo/capacidade insuficiente.
+  422: UUID inválido, variável não substituída, dinheiro numérico, quantidade inválida,
+       corpo incompleto, motivo em branco, data sem fuso ou email fora de .invalid.
+  429: bloqueio progressivo de login; aguarde e confira a senha.
+
+O envelope error.code/message/details/request_id ajuda a identificar a causa.
+Um health 200 prova apenas que o processo está vivo; não prova que o banco/seed está pronto.
+
+8. LIMITES DA VERSÃO
+-------------------
+Auditoria global, MFA, recuperação de senha, ERP/PSP reais, fluxo do entregador,
+rastreamento, provas e disputas não estão implementados. Aceite é integral ou recusa
+total; não habilite accepts_partial. Frontend/mobile devem mockar o lado do entregador.
+
+Referências do formato e scripts:
+  https://schema.postman.com/json/collection/v2.1.0/docs/index.html
+  https://learning.postman.com/v11/docs/tests-and-scripts/write-scripts/postman-sandbox-reference/pm-execution

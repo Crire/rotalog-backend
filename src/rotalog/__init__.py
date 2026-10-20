@@ -1,2 +1,1 @@
 """Backend da plataforma RotaLog."""
-

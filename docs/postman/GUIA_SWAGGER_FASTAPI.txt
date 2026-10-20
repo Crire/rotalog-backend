@@ -1,0 +1,404 @@
+ROTALOG — GUIA DOS ENDPOINTS PELO SWAGGER / FASTAPI
+================================================
+
+Escopo: demo V5 de comprador/distribuidora. Dados, empresas, coordenadas e pagamentos
+são sintéticos. Não há cobrança real ou entrega real. O fluxo termina em pronto
+para despacho. Este arquivo descreve o backend atual, não funcionalidades futuras.
+
+1. PREPARAR E INICIAR A API
+--------------------------
+No terminal:
+  cd /home/crire/Projects/rotalog/Backend/rotalog-backend
+
+Tenha Python 3.13, uv e PostgreSQL 17. Configure .env conforme .env.example:
+  ROTALOG_DATABASE_URL: URL postgresql+psycopg://... para banco dedicado de demo
+  ROTALOG_ENVIRONMENT=development
+  ROTALOG_DEMO_ENABLED=true
+  ROTALOG_DEBUG=false
+  ROTALOG_JWT_SECRET: chave própria, aleatória, de pelo menos 32 bytes
+  ROTALOG_DEMO_PASSWORD: senha forte escolhida para as contas do seed
+  ROTALOG_COOKIE_SECURE=false (somente HTTP local)
+
+Gere secrets próprios, separadamente, sem colocá-los no Git. Não existe senha padrão.
+Não coloque senha do banco ou JWT secret nos corpos dos endpoints.
+
+Execute:
+  uv sync --locked
+  uv run --locked alembic upgrade head
+  uv run --locked python -m rotalog.demo.seed
+  uv run --locked uvicorn rotalog.api.main:app --host 127.0.0.1 --port 8000
+
+Em outro terminal, no mesmo diretório/ambiente:
+  uv run --locked python -m rotalog.demo.worker
+
+Alternativa: depois de preencher .env, docker compose up --build -d. Nesse caso,
+API/worker usam o banco interno do Compose; não confunda com a URL do banco do host.
+
+Abra:
+  Swagger interativo: http://localhost:8000/docs
+  OpenAPI JSON:      http://localhost:8000/openapi.json
+  Health:            http://localhost:8000/health
+
+Se a porta for outra, altere as URLs. Um /health 200 não confirma banco/seed pronto.
+
+2. COMO OPERAR O SWAGGER E TROCAR DE USUÁRIO
+-----------------------------------------
+Em cada rota: expanda -> Try it out -> preencha parâmetros/corpo -> Execute.
+Leia o status HTTP e o Response body. Copie IDs/versões das respostas; o Swagger
+não salva automaticamente essas referências como a coleção Postman faz.
+
+Clique Authorize no topo. O esquema OAuth2PasswordBearer pede:
+  username: email da conta
+  password: senha da conta
+  client_id/client_secret: deixe vazios; não existe cliente OAuth externo nesta demo.
+Clique Authorize e feche a janela. Não use senha do PostgreSQL nem JWT secret.
+
+Para trocar de papel: Authorize -> Logout (na janela) -> informe a outra conta ->
+Authorize. Esse Logout da JANELA remove a autorização da interface; quem revoga a
+sessão no servidor é POST /auth/logout ou outro comando de revogação.
+
+Contas do seed (senha que você escolheu no seed):
+  Administrador: admin@demo.rotalog.invalid
+  Comprador:     comprador@demo.rotalog.invalid
+  Distribuidora: fornecedor@demo.rotalog.invalid
+  Motorista:     motorista@demo.rotalog.invalid (sem fluxo operacional implementado)
+
+Também existe POST /api/v1/auth/login em Try it out. Ele recebe formulário, NÃO
+JSON: username=email e password=senha, client_type=native. O JWT e o refresh aparecem
+na resposta. Executar essa rota NÃO atualiza o token guardado pelo botão Authorize.
+Ela pode criar uma sessão diferente da usada pela janela de autorização.
+
+X-Organization-Id é opcional: deixe-o ausente para usar a organização inicial. Se
+preencher, use organization_id do usuário autenticado; não é permissão para acessar
+outra empresa. Não envie string vazia, "null", nome da empresa ou UUID inventado.
+
+IMPORTANTE: nos exemplos abaixo, substitua TODOS os textos COLE_... pelos valores
+retornados, inclusive IDs dentro do corpo. Swagger não interpola {{variaveis}} do
+Postman. Dinheiro fica entre aspas; quantidades e versões ficam sem aspas.
+
+3. CENÁRIO 1 — CADASTRAR DISTRIBUIDORA E PRODUTO/OFERTA
+-----------------------------------------------------
+3.1. Authorize como ADMINISTRADOR.
+POST /api/v1/admin/products — corpo:
+
+{
+  "name": "Pizza — mistura seca lacrada 400 g",
+  "brand": "Marca Sintética",
+  "category": "ALIMENTO_SECO_INDUSTRIALIZADO",
+  "gtin": null,
+  "net_content": 400,
+  "net_content_unit": "g",
+  "packaging_type": "Pacote lacrado",
+  "packaging_quantity": 1,
+  "gross_weight_grams": 450,
+  "volume_cm3": 1000,
+  "variant_attributes": {"origem": "SIMULAÇÃO", "apresentacao": "mistura seca"}
+}
+
+Esperado: 201, publication_state=DRAFT. Anote PRODUCT_ID=id e PRODUCT_VERSION=version.
+Este produto é uma mistura seca industrializada para Pizza, não alimento fresco.
+A distribuidora não cria o produto canônico: esse ato é administrativo na V5.
+
+3.2. POST /api/v1/admin/products/{product_id}/publish.
+Preencha product_id com PRODUCT_ID e corpo com a versão que acabou de receber:
+  {"expected_version": 1}
+O 1 é exemplo da versão inicial; use a resposta real. Esperado: 200/PUBLISHED.
+
+3.3. POST /api/v1/auth/register — cadastro sintético da distribuidora:
+
+{
+  "email": "distribuidora.pizza.cenario001@demo.rotalog.invalid",
+  "password": "ESCOLHA_UMA_SENHA_PROPRIA_COM_12_OU_MAIS_CARACTERES",
+  "name": "Distribuidor Sintético",
+  "organization_name": "Distribuidora Pizza Sintética",
+  "role": "SUPPLIER_OPERATOR"
+}
+
+Esperado: 201. Anote email/senha escolhidos e SUPPLIER_ID=organization_id.
+Use email NOVO ao repetir um cenário. Não use essa frase de exemplo como senha.
+Email duplicado retorna 409. Não há autocadastro de administrador ou motorista.
+
+3.4. Troque Authorize para essa nova conta da distribuidora.
+GET /api/v1/me confirma role=SUPPLIER_OPERATOR e organization_id=SUPPLIER_ID.
+
+3.5. POST /api/v1/suppliers/{supplier_id}/warehouses.
+No parâmetro supplier_id, use SUPPLIER_ID. Corpo:
+
+{
+  "name": "Depósito Pizza Sintético",
+  "address": "Endereço fictício para demonstração, Manaus",
+  "opening_hours": "Seg–Sex 08:00–18:00",
+  "region": "MANAUS"
+}
+
+Esperado: 201/PENDING. Anote WAREHOUSE_ID=id e WAREHOUSE_VERSION=version.
+
+3.6. Troque Authorize para ADMINISTRADOR.
+POST /api/v1/warehouses/{warehouse_id}/geocoding-review, usando WAREHOUSE_ID:
+
+{
+  "expected_version": 1,
+  "latitude": "-3.100000",
+  "longitude": "-60.000000",
+  "reason": "Coordenadas sintéticas confirmadas para testar a demo"
+}
+
+Use a versão REAL do depósito. Esperado: 200/CONFIRMED. Não há geocodificador real.
+
+3.7. Troque Authorize de volta para DISTRIBUIDORA.
+POST /api/v1/suppliers/{supplier_id}/offers, usando SUPPLIER_ID:
+
+{
+  "product_id": "COLE_PRODUCT_ID",
+  "warehouse_id": "COLE_WAREHOUSE_ID",
+  "unit_price": "29.90",
+  "currency": "BRL",
+  "minimum_order_quantity": 1
+}
+
+Esperado: 201. Anote OFFER_ID=id e OFFER_VERSION=version. Estoque inicial é ZERO.
+
+3.8. GET /api/v1/inventory.
+Preencha offer_id=OFFER_ID e warehouse_id=WAREHOUSE_ID. Anote a version do item em
+items[0] como INVENTORY_VERSION. Ela NÃO é a versão da oferta ou do depósito.
+
+POST /api/v1/inventory/manual-adjustments:
+
+{
+  "expected_version": 1,
+  "offer_id": "COLE_OFFER_ID",
+  "warehouse_id": "COLE_WAREHOUSE_ID",
+  "external_sellable_quantity": 20,
+  "safety_stock_quantity": 0,
+  "reason": "Saldo inicial sintético de 20 unidades de Pizza"
+}
+
+Use INVENTORY_VERSION real. Esperado: 200, effective_sellable_quantity=20.
+Este comando define o TOTAL vendável, não uma entrada incremental. Reservas não
+são editáveis e não podem ser consumidas por um ajuste de saldo.
+
+3.9. POST /api/v1/demo/capacity-slots — janela manual da demo:
+
+{
+  "warehouse_id": "COLE_WAREHOUSE_ID",
+  "starts_at": "COLE_INICIO_FUTURO_ISO_UTC",
+  "ends_at": "COLE_FIM_FUTURO_ISO_UTC",
+  "total_quantity": 100
+}
+
+Use datas futuras com fuso, por exemplo no formato AAAA-MM-DDTHH:MM:SSZ, e fim
+posterior ao início. Para gerar valores válidos no terminal do projeto:
+
+  uv run --locked python -c "from datetime import datetime, UTC, timedelta; n=datetime.now(UTC); print('starts_at:',(n+timedelta(hours=1)).isoformat()); print('ends_at:',(n+timedelta(days=1)).isoformat())"
+
+Esperado: 201. Anote SLOT_ID=id. GET /capacity-slots?warehouse_id=... consulta a janela.
+O depósito/capacidade são de demonstração; não agendam transporte real.
+
+4. CENÁRIO 2 — COMPRADOR, DISTRIBUIDORAS E COMPRA
+----------------------------------------------
+4.1. POST /api/v1/auth/register com email novo:
+
+{
+  "email": "comprador.pizza.cenario001@demo.rotalog.invalid",
+  "password": "ESCOLHA_OUTRA_SENHA_PROPRIA_COM_12_OU_MAIS_CARACTERES",
+  "name": "Comprador Sintético",
+  "organization_name": "Mercado Sintético",
+  "role": "BUYER_ADMIN"
+}
+
+Esperado: 201. Troque Authorize para esse comprador. Confirme com GET /api/v1/me.
+
+4.2. GET /api/v1/suppliers lista distribuidoras sintéticas.
+Use page=1/page_size=25 (máximo 100). Para ver TODAS, percorra as páginas até atingir
+total. Essa lista não inclui senhas ou usuários das distribuidoras.
+
+4.3. GET /api/v1/products com search=Pizza; GET /products/{product_id} mostra a variante.
+GET /api/v1/offers pode filtrar supplier_id=SUPPLIER_ID, product_id=PRODUCT_ID e
+region=MANAUS. Não confunda supplier_id com ID do usuário da distribuidora.
+GET /api/v1/capacity-slots com warehouse_id=WAREHOUSE_ID confirma SLOT_ID disponível.
+
+4.4. POST /api/v1/checkouts.
+No header Idempotency-Key do Swagger, informe uma chave própria, por exemplo:
+  swagger-checkout-CENARIO_UNICO-001
+Troque CENARIO_UNICO por identificador novo deste cenário. Guarde a chave.
+Corpo:
+
+{
+  "items": [{"offer_id": "COLE_OFFER_ID", "quantity": 3}],
+  "capacity_slot_id": "COLE_SLOT_ID",
+  "accepts_partial": false
+}
+
+Esperado: 201/READY_FOR_PAYMENT, total="89.70", currency="BRL".
+Anote CHECKOUT_ID=id e CHECKOUT_VERSION=version. A demo aceita um fornecedor e
+depósito por checkout. A reserva dura até 15 minutos, limitada pela janela.
+
+4.5. GET /api/v1/checkouts/{checkout_id} confere estado, prazo e versão.
+POST /api/v1/checkouts/{checkout_id}/confirm-payment, usando CHECKOUT_ID.
+Use OUTRA chave, por exemplo swagger-payment-CENARIO_UNICO-001. Corpo:
+  {"expected_version": 1}
+Use CHECKOUT_VERSION real. Não envie preço/total escolhido pelo cliente.
+
+Esperado: 200, payment_state=CAPTURED, provider=SIMULATED, total="89.70".
+Anote PURCHASE_ID=purchase_id e ORDER_ID=supplier_order_ids[0]. Nenhum PSP é chamado.
+GET /api/v1/purchases e /purchases/{purchase_id} mostram a compra.
+GET /api/v1/purchases/{purchase_id}/payments mostra a cobrança SIMULADA.
+
+IDEMPOTÊNCIA: reenviar a mesma chave com o MESMO corpo retorna o resultado anterior.
+Não mude a chave apenas porque houve timeout. Mesma chave com corpo diferente dá
+409 IDEMPOTENCY_KEY_REUSED. Uma intenção realmente nova precisa de uma chave nova.
+
+5. CENÁRIO 3 — DISTRIBUIDORA CONFERE E PREPARA SEUS PEDIDOS
+--------------------------------------------------------
+5.1. Troque Authorize para a distribuidora criada no cenário 1.
+GET /api/v1/supplier-orders lista seus pedidos pagos. GET /supplier-orders/{order_id}
+com ORDER_ID mostra AWAITING_SUPPLIER_DECISION. Anote:
+  ORDER_VERSION = version do pedido;
+  ORDER_ITEM_ID = items[0].id.
+GET /supplier-orders/{order_id}/financial-summary mostra valor protegido/simulado.
+
+5.2. POST /api/v1/supplier-orders/{order_id}/acceptance.
+Header Idempotency-Key: swagger-accept-CENARIO_UNICO-001.
+Corpo (versão real, não necessariamente o 1 de exemplo):
+
+{
+  "expected_version": 1,
+  "lines": [{"order_item_id": "COLE_ORDER_ITEM_ID", "accepted_quantity": 3}]
+}
+
+Esperado: 200/ACCEPTED. Anote a nova ORDER_VERSION. Envie TODAS as linhas do pedido.
+Nesta demo, aceite integral ou recusa total. Para testar RECUSA, em OUTRO pedido
+ainda sem decisão, use accepted_quantity=0 em todas as linhas e não continue a
+preparação. Recusa libera reserva/capacidade e prepara reembolso SIMULADO.
+
+5.3. POST /supplier-orders/{order_id}/start-separation.
+Corpo: {"expected_version": COLE_ORDER_VERSION_INTEIRO}
+Esperado: SEPARATING. Copie a nova version da resposta.
+
+5.4. POST /supplier-orders/{order_id}/fulfillments:
+
+{
+  "expected_version": 3,
+  "lines": [{"order_item_id": "COLE_ORDER_ITEM_ID", "allocated_quantity": 3}]
+}
+
+O 3 é apenas exemplo; use a versão atual do PEDIDO. Esperado: 201.
+Anote FULFILLMENT_ID=id, FULFILLMENT_VERSION=version e FULFILLMENT_LINE_ID=lines[0].id.
+Criar lote também incrementa a versão do pedido; são agregados diferentes.
+
+5.5. POST /api/v1/fulfillments/{fulfillment_id}/separation-results:
+
+{
+  "expected_version": 1,
+  "lines": [{"fulfillment_line_id": "COLE_FULFILLMENT_LINE_ID", "separated_quantity": 3}]
+}
+
+Use a versão do FULFILLMENT. Esperado: 200. Copie a nova FULFILLMENT_VERSION.
+
+5.6. POST /api/v1/fulfillments/{fulfillment_id}/mark-ready:
+  {"expected_version": 2}
+Use a versão REAL do lote após separação. Esperado: READY_TO_DISPATCH.
+GET /supplier-orders/{order_id} confirma pedido pronto, separado=3 e despachado=0.
+
+5.7. GET /api/v1/inventory com offer_id/warehouse_id da oferta.
+Esperado neste cenário: total vendável=20, reservas=3, segurança=0, disponível=17.
+A reserva paga continua comprometida. Pronto para despacho não significa que as
+unidades foram entregues ou que houve liberação financeira ao fornecedor.
+
+6. DEMAIS ENDPOINTS DISPONÍVEIS E AÇÕES ALTERNATIVAS
+--------------------------------------------------
+Os prefixos abaixo também são /api/v1. Todas as escritas revalidam permissões.
+
+Autenticação/sessão:
+  POST   /auth/login                         formulário, client_type=native/browser
+  POST   /auth/refresh                       {"refresh_token":"COLE_REFRESH_ATUAL"}
+  POST   /auth/logout                        revoga sessão do Bearer ou refresh
+  POST   /auth/logout-all                    revoga todas as sessões do usuário
+  POST   /auth/password/change               current_password e new_password
+  GET    /me                                perfil, organizações e capacidades
+  GET    /me/sessions                        lista sessões e indicador current
+  DELETE /me/sessions/{session_id}            revoga uma sessão própria selecionada
+  POST   /auth/register                      extensão de cadastro sintético
+
+Access dura 10 minutos. Refresh é opaco e de uso único; guarde o NOVO refresh após
+cada renovação. Reutilizar o antigo revoga a família. O Swagger não atualiza
+automaticamente o token do Authorize ao executar /auth/refresh. O access anterior
+continua válido até expirar se a sessão não foi revogada. Quando expirar, use a
+janela Authorize para novo login; use Postman/curl para testar diretamente o novo
+Bearer devolvido pelo refresh sem criar outra sessão pela interface.
+
+Logout no servidor, revogação de dispositivo e troca de senha invalidam tokens.
+Para continuar, faça novo Authorize; após trocar senha, use a senha NOVA.
+Não teste troca de senha administrativa por acidente: use uma conta sintética nova.
+
+Preço:
+  POST /offers/{offer_id}/price-changes
+  {"expected_version": 1, "unit_price": "39.90", "currency": "BRL", "minimum_order_quantity": 1}
+  Use a versão real da OFERTA. Não altera preço já fixado em pedido/checkout.
+
+Pausa:
+  POST /offers/{offer_id}/pause
+  {"expected_version": 2}
+  Use a versão real da OFERTA. Pausa impede novos checkouts; não cancela pedidos.
+  Não há rota de retomada nesta versão; teste somente após a compra principal.
+
+Capacidade:
+  GET /capacity-slots?warehouse_id=COLE_WAREHOUSE_ID
+  POST /capacity-slots/{slot_id}/adjustments
+  {"expected_version": 2, "total_quantity": 150, "reason": "Aumento sintético de capacidade"}
+  Use a versão real do SLOT. Não pode reduzir o total abaixo do reservado.
+
+Cancelamento elegível:
+  POST /supplier-orders/{order_id}/cancel
+  {"expected_version": 1, "reason": "Cancelamento sintético solicitado pelo comprador"}
+  Para testar, crie OUTRA compra ainda AWAITING_SUPPLIER_DECISION. Não tente
+  cancelar o pedido principal já preparado. Reembolso é simulado; saldo é liberado.
+
+Consultas restantes:
+  GET /warehouses                depósitos permitidos ao fornecedor autenticado
+  GET /inventory                 estoque privado do fornecedor
+  GET /suppliers                 diretório sintético paginado
+  GET /products e /products/{id}  variantes publicadas
+  GET /offers                    catálogo com filtros por produto/fornecedor/região/janela
+
+7. MODO NAVEGADOR, CORS E COOKIES
+-------------------------------
+No Swagger, prefira o fluxo nativo. O teste de navegador tem requisitos adicionais:
+  - client_type=browser usa refresh em cookie host-only HttpOnly/SameSite=Lax;
+  - a origem exata do portal precisa estar em ROTALOG_CORS_ORIGINS;
+  - refresh/logout por cookie exigem Origin e X-CSRF-Token do login;
+  - não envie refresh simultaneamente em cookie e corpo;
+  - em HTTP local cookie_secure=false; online deve ser true com HTTPS.
+
+Não tente contornar isso colocando Origin/CSRF na URL. Navegadores controlam o header
+Origin, e a UI Swagger atual não expõe esses headers como campos dessas rotas.
+Use a pasta opcional de navegador do Postman para testar explicitamente o protocolo,
+ou um frontend configurado corretamente. Postman não simula todas as regras SameSite.
+Em navegador local, não misture localhost no portal e 127.0.0.1 na API (ou vice-versa).
+Online, portal/API devem estar no mesmo site registrável para esta baseline Lax.
+
+8. ERROS, PAGINAÇÃO E LIMITAÇÕES
+------------------------------
+  401: autentique novamente; token pode ter expirado ou sessão estar revogada.
+  403: confira papel/vínculo, demo habilitada e, no cookie, origem/CSRF.
+  404: confira UUID e organização; recurso alheio é ocultado por isolamento.
+  409: confira error.code; consulte versão/estado/saldo antes de repetir.
+  422: confira UUIDs, JSON, strings monetárias, inteiros, motivo e datas com fuso.
+  429: bloqueio progressivo de login; aguarde e confira a senha.
+
+Envelope de erro: error.code, error.message, error.details e error.request_id.
+Nunca resolva um 409 incrementando versões por palpite. Consulte o recurso novamente.
+Reservas também alteram versões de estoque/capacidade. Não reutilize versões de
+produto, oferta, pedido ou fulfillment entre agregados diferentes.
+
+Paginação: page>=1, page_size padrão 25/máximo 100. Respostas contêm items e total.
+Não trate uma única página como todas as distribuidoras/pedidos disponíveis.
+
+Ainda não implementados: MFA, recuperação de senha, auditoria global, integrações
+financeiras/ERP reais, motorista, tracking, despacho/entrega, provas, disputas e
+parcialidade operacional. Frontend/mobile devem mockar o lado do entregador, sem
+gravar no backend estados fictícios de entrega ou recebimento.
+
+As rotas antigas /auth/me, /ofertas e PATCH /offers/{id}/inventory foram substituídas
+pelos caminhos atuais. OpenAPI (/openapi.json) é a referência do contrato publicado.
+Este material não altera código do backend, workflows, commits ou pull requests.
