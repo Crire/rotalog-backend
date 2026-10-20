@@ -1,36 +1,49 @@
-"""Hash de senha Argon2id e JWT HMAC de curta duração."""
+"""Argon2id e tokens: access JWT de 10 minutos e refresh opaco com hash."""
 
+import hashlib
+import hmac
 from datetime import UTC, datetime, timedelta
-from uuid import UUID, uuid4
+from uuid import uuid4
 
 import jwt
 from pwdlib import PasswordHash
 
 from rotalog.core.config import Settings
-from rotalog.core.errors import RotaLogError
+from rotalog.core.contracts import fail
+from rotalog.identity.models import AuthSession, User
 
 password_hash = PasswordHash.recommended()
-ACCESS_TOKEN_SECONDS = 15 * 60
+ACCESS_TOKEN_SECONDS = 600
 ISSUER = "rotalog-api"
 AUDIENCE = "rotalog-clients"
 
 
 def require_demo(settings: Settings) -> str:
     if not settings.demo_enabled or settings.jwt_secret is None:
-        raise RotaLogError(
-            code="DEMO_DISABLED",
-            message="Demonstração não habilitada.",
-            status_code=403,
-        )
+        fail("DEMO_DISABLED", "Demonstração não habilitada.", 403)
     return settings.jwt_secret.get_secret_value()
 
 
-def create_access_token(user_id: UUID, demo_run_id: UUID, settings: Settings) -> str:
+def token_hash(token: str) -> str:
+    return hashlib.sha256(token.encode()).hexdigest()
+
+
+def csrf_token(session_id: str, settings: Settings) -> str:
+    return hmac.new(
+        require_demo(settings).encode(), f"csrf:{session_id}".encode(), hashlib.sha256
+    ).hexdigest()
+
+
+def create_access_token(
+    user: User, auth_session: AuthSession, settings: Settings
+) -> str:
     now = datetime.now(UTC)
     return jwt.encode(
         {
-            "sub": str(user_id),
-            "demo_run_id": str(demo_run_id),
+            "sub": str(user.id),
+            "session_id": str(auth_session.id),
+            "auth_version": user.auth_version,
+            "demo_run_id": str(user.demo_run_id),
             "iat": now,
             "exp": now + timedelta(seconds=ACCESS_TOKEN_SECONDS),
             "iss": ISSUER,
@@ -42,21 +55,26 @@ def create_access_token(user_id: UUID, demo_run_id: UUID, settings: Settings) ->
     )
 
 
-def decode_access_token(token: str, settings: Settings) -> tuple[UUID, UUID]:
+def decode_access_token(token: str, settings: Settings) -> dict:
     secret = require_demo(settings)
     try:
-        payload = jwt.decode(
+        return jwt.decode(
             token,
             secret,
             algorithms=["HS256"],
             issuer=ISSUER,
             audience=AUDIENCE,
-            options={"require": ["sub", "demo_run_id", "iat", "exp", "jti"]},
+            options={
+                "require": [
+                    "sub",
+                    "session_id",
+                    "auth_version",
+                    "demo_run_id",
+                    "iat",
+                    "exp",
+                    "jti",
+                ]
+            },
         )
-        return UUID(payload["sub"]), UUID(payload["demo_run_id"])
-    except (jwt.InvalidTokenError, ValueError, TypeError, KeyError) as exc:
-        raise RotaLogError(
-            code="INVALID_TOKEN",
-            message="Token inválido ou expirado.",
-            status_code=401,
-        ) from exc
+    except jwt.InvalidTokenError:
+        fail("INVALID_TOKEN", "Token inválido ou expirado.", 401)

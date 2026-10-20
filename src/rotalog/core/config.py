@@ -14,6 +14,7 @@ class Environment(StrEnum):
 
     DEVELOPMENT = "development"
     TEST = "test"
+    DEMO = "demo"
     STAGING = "staging"
     PRODUCTION = "production"
 
@@ -32,12 +33,14 @@ class Settings(BaseSettings):
 
     app_name: str = "RotaLog API"
     app_description: str = "API backend do marketplace B2B RotaLog."
-    app_version: str = "0.1.0"
+    app_version: str = "0.2.0"
     environment: Environment = Environment.DEVELOPMENT
     debug: bool = False
     database_url: SecretStr
     demo_enabled: bool = False
     jwt_secret: SecretStr | None = None
+    cors_origins: list[str] = []
+    cookie_secure: bool = False
 
     @field_validator("jwt_secret", mode="before")
     @classmethod
@@ -56,10 +59,34 @@ class Settings(BaseSettings):
         if self.demo_enabled and self.environment not in {
             Environment.DEVELOPMENT,
             Environment.TEST,
+            Environment.DEMO,
         }:
-            raise ValueError("A demo só pode ser habilitada em development ou test")
+            raise ValueError(
+                "A demo só pode ser habilitada em development ou test ou demo"
+            )
         if self.demo_enabled and self.jwt_secret is None:
             raise ValueError("ROTALOG_JWT_SECRET é obrigatória para habilitar a demo")
+        if self.environment is Environment.DEMO and not self.cookie_secure:
+            raise ValueError("Demo online exige ROTALOG_COOKIE_SECURE=true e HTTPS")
+        if self.environment is Environment.DEMO and self.debug:
+            raise ValueError("Demo online não permite debug")
+        for origin in self.cors_origins:
+            from urllib.parse import urlsplit
+
+            url = urlsplit(origin)
+            if (
+                url.scheme not in {"http", "https"}
+                or not url.netloc
+                or url.username is not None
+                or url.password is not None
+                or url.path
+                or url.query
+                or url.fragment
+                or "*" in origin
+            ):
+                raise ValueError("CORS exige origens exatas, sem caminhos ou curingas")
+            if self.environment is Environment.DEMO and url.scheme != "https":
+                raise ValueError("Demo online exige origens CORS HTTPS")
         return self
 
     @field_validator("database_url")

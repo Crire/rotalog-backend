@@ -1,0 +1,50 @@
+name: rotalog-demo
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: rotalog
+      POSTGRES_DB: rotalog_demo
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Defina POSTGRES_PASSWORD no arquivo .env}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U rotalog -d rotalog_demo"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+  api:
+    build: .
+    environment: &api_environment
+      ROTALOG_DATABASE_URL: postgresql+psycopg://rotalog:${POSTGRES_PASSWORD:?Defina POSTGRES_PASSWORD}@db:5432/rotalog_demo
+      ROTALOG_ENVIRONMENT: ${ROTALOG_ENVIRONMENT:-development}
+      ROTALOG_DEBUG: "false"
+      ROTALOG_DEMO_ENABLED: "true"
+      ROTALOG_JWT_SECRET: ${ROTALOG_JWT_SECRET:?Defina ROTALOG_JWT_SECRET}
+      ROTALOG_DEMO_PASSWORD: ${ROTALOG_DEMO_PASSWORD:?Defina uma senha sintética forte}
+      ROTALOG_CORS_ORIGINS: ${ROTALOG_CORS_ORIGINS:-[]}
+      ROTALOG_COOKIE_SECURE: ${ROTALOG_COOKIE_SECURE:-false}
+    command: [sh, -c, "alembic upgrade head && python -m rotalog.demo.seed && exec uvicorn rotalog.api.main:app --host 0.0.0.0 --port 8000 --proxy-headers"]
+    ports:
+      - "127.0.0.1:8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=2)"]
+      interval: 10s
+      timeout: 3s
+      retries: 20
+      start_period: 30s
+    restart: unless-stopped
+  worker:
+    build: .
+    environment: *api_environment
+    command: [python, -m, rotalog.demo.worker]
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+volumes:
+  postgres_data:

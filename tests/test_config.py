@@ -58,3 +58,31 @@ def test_demo_requires_signing_key(monkeypatch: MonkeyPatch) -> None:
             demo_enabled=True,
             database_url="postgresql+psycopg://localhost/rotalog_test",
         )
+
+
+def test_online_demo_requires_secure_cookie_and_exact_https_origins():
+    base = {
+        "_env_file": None,
+        "environment": "demo",
+        "demo_enabled": True,
+        "database_url": "postgresql+psycopg://localhost/rotalog_test",
+        "jwt_secret": "synthetic-test-signing-key-at-least-32-bytes",
+    }
+    with pytest.raises(ValidationError, match="COOKIE_SECURE"):
+        Settings(**base)
+    for origins in (
+        ["*"],
+        ["http://portal.example.invalid"],
+        ["https://portal.example.invalid/path"],
+        ["https://user:pass@portal.example.invalid"],
+    ):
+        with pytest.raises(ValidationError):
+            Settings(**base, cookie_secure=True, cors_origins=origins)
+    with pytest.raises(ValidationError, match="debug"):
+        Settings(**base, cookie_secure=True, debug=True)
+    assert (
+        Settings(
+            **base, cookie_secure=True, cors_origins=["https://portal.example.invalid"]
+        ).environment
+        is Environment.DEMO
+    )

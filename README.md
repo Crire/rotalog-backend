@@ -1,275 +1,252 @@
-# RotaLog Backend
+# RotaLog Backend — demo V5
 
-API e núcleo de regras de negócio do **RotaLog**, um marketplace B2B para reposição de alimentos secos e industrializados que conecta empresas compradoras, fornecedores, motoristas e a operação da RotaLog.
+API do marketplace B2B de alimentos secos industrializados. Esta versão é um
+**recorte funcional da V5**, não o piloto completo. Todos os usuários, empresas,
+coordenadas, produtos, saldos e pagamentos de demonstração são **sintéticos**.
+Não cadastre dados pessoais reais nem use esta API para movimentar dinheiro real.
 
-Este repositório concentra autenticação, autorização, consistência transacional, pedidos, pagamentos, logística, provas de entrega, disputas, auditoria e integrações. O backend é a única porta de acesso aos dados do sistema: o portal web e o aplicativo Android não acessam o banco diretamente.
+Funciona: cadastro sintético, login, refresh/revogação de sessão, catálogo canônico,
+depósitos, ofertas, estoque/capacidade manual, reserva de checkout, compra com
+pagamento simulado, consulta/aceite/recusa de pedidos, separação e prontidão.
+O backend continua sendo a única porta de acesso aos dados para web/mobile.
 
-> **Estado atual:** API FastAPI com `/health`, PostgreSQL/SQLAlchemy, migrations Alembic, login JWT para três perfis sintéticos e catálogo autenticado persistente. O seed de demonstração é explícito e idempotente; demais fluxos de pedidos/logística seguem planejados.
+Não funciona ainda: despacho/entrega, rastreamento, motorista, prova, disputa,
+auditoria global, relógio controlado/reset de cenários, MFA/recuperação de senha,
+convites organizacionais e integrações reais. **Frontend e mobile devem usar mocks
+nas telas/ações do entregador**, sem enviar estados de entrega fictícios ao backend.
 
-## Responsabilidades
+## Stack e módulos
 
-- expor uma API REST autenticada e documentada por OpenAPI;
-- validar entrada, permissões, organização ativa e transições de estado;
-- coordenar catálogo, ofertas, estoque, checkout, pagamentos e pedidos;
-- controlar preparação, rotas, custódia, entrega, retorno e reentrega;
-- armazenar e autorizar o acesso a fotos, assinaturas e demais evidências;
-- processar jobs e eventos posteriores por worker próprio apoiado no PostgreSQL;
-- manter idempotência, concorrência, timeline e auditoria append-only;
-- fornecer o contrato canônico consumido pelo frontend e pelo mobile;
-- incorporar, no piloto, PSP, ERP, PostGIS, otimização de rotas e object storage.
-
-## Arquitetura e comunicação
-
-```mermaid
-flowchart TB
-    WEB["Portal web React"] -->|"HTTPS + JSON / API REST"| API["API FastAPI"]
-    MOBILE["Aplicativo Android"] -->|"HTTPS + JSON / API REST"| API
-    API --> DB[(PostgreSQL)]
-    API --> FILES["Evidências privadas"]
-    WORKER["Worker Python"] --> DB
-    WORKER --> FILES
-```
-
-- **Frontend:** consome autenticação, catálogo, checkout, pedidos, rotas, disputas e endpoints operacionais.
-- **Mobile:** consome autenticação e operações do motorista, como rotas, tentativas, GPS, foto, assinatura, entrega e retorno.
-- **OpenAPI:** é o contrato canônico entre os três repositórios. Mudanças incompatíveis devem ser versionadas e coordenadas com os clientes.
-- **Persistência:** somente API e worker acessam PostgreSQL e arquivos privados.
-- **Processamento posterior:** jobs, notificações internas e efeitos assíncronos usam PostgreSQL, `ScheduledJob` e `OutboxEvent`; Redis e Celery não fazem parte da demonstração.
-- **Atualização de estado:** a baseline usa requisições HTTP e polling quando necessário. WebSocket não é requisito da demonstração.
-
-## Arquitetura interna
-
-A demonstração utiliza um **monólito modular**. A API e o worker compartilham os mesmos serviços de aplicação e regras de domínio, embora executem em processos diferentes.
-
-Estrutura de módulos prevista:
+Python 3.13, FastAPI, Pydantic 2, SQLAlchemy 2 síncrono, psycopg 3, Alembic,
+PostgreSQL 17, Uvicorn. Dependências fixadas em `uv.lock`; `requirements.txt` é
+exportado desse lock. Routers só traduzem HTTP; serviços autorizam e transacionam.
 
 ```text
 src/rotalog/
-  api/              # bootstrap, middlewares, OpenAPI e healthcheck
-  core/             # configuração, banco, tempo, erros e utilidades
-  identity/         # usuários, sessões e autenticação
-  organizations/    # empresas, vínculos, papéis e capacidades
-  marketplace/      # catálogo, ofertas, estoque e capacidade
-  ordering/         # checkout, reservas, pagamentos, compras e pedidos
-  logistics/        # rotas, custódia, entrega, retorno e rastreamento
-  disputes/         # contestação, decisão e revisão
-  operations/       # notificações, auditoria, arquivos e jobs
-  demo/             # DemoRun, relógio controlado e cenários sintéticos
-  integrations/     # ERP, matriz viária, PSP e adaptadores do piloto
+  api/              # bootstrap, OpenAPI, erros, CORS, request ID e health
+  core/             # settings, banco, contratos e dinheiro em centavos
+  identity/         # usuário, sessão, refresh rotativo e senha
+  organizations/    # organizações, Membership e consulta de distribuidoras
+  catalog/          # variante canônica, publicação, oferta e histórico de preços
+  inventory/        # depósito, projeção, ajuste nominal, reserva e capacidade
+  ordering/         # CheckoutSession, Purchase, SupplierOrder, OrderItem, Fulfillment
+  finance/          # Payment e PaymentAllocation exclusivamente simulados
+  operations/       # idempotência persistente; auditoria global pendente
+  demo/             # seed idempotente e worker de expiração
+  logistics/        # reservado; entregador fora do escopo
+  disputes/         # reservado
+  reviews/          # reservado
+  integrations/     # reservado; sem chamadas a ERP/PSP/mapas reais
 ```
 
-Cada módulo começa com a menor estrutura necessária:
+Dinheiro é `BIGINT amount_minor` e `currency CHAR(3)` no banco. A API usa strings,
+por exemplo `"29.90"` com `"currency": "BRL"`; números JSON para dinheiro são
+rejeitados. UUID4, TIMESTAMPTZ e quantidades inteiras são usados no domínio.
 
-```text
-module/
-  router.py         # endpoints HTTP
-  schemas.py        # contratos de entrada e saída
-  service.py        # casos de uso, transações e regras
-  models.py         # modelos SQLAlchemy
-  queries.py        # consultas complexas, quando necessário
-```
+## Executar localmente com PostgreSQL 17
 
-Routers não contêm regra de negócio. Um módulo utiliza o serviço público de outro módulo e toda transição crítica registra auditoria na mesma transação.
-
-## Principais domínios e entidades
-
-| Domínio | Responsabilidade | Entidades principais |
-|---|---|---|
-| Identidade e organizações | Login, sessões, empresas, vínculos, papéis e isolamento organizacional | `User`, `Session`, `Organization`, `Membership` |
-| Marketplace | Catálogo canônico, ofertas, estoque declarado e capacidade | `Product`, `Offer`, `InventoryBalance`, `CapacitySlot` |
-| Pedidos e financeiro | Checkout, reservas, pedido, pagamento, reembolso e repasse | `CheckoutSession`, `Reservation`, `Order`, `OrderItem`, `Payment`, `PaymentEvent` |
-| Logística e custódia | Preparação, rotas, paradas, despacho, localização conhecida e retorno | `Route`, `RouteStop`, `CustodyEvent`, `Return` |
-| Entrega | Tentativas, recebedor autorizado e prova digital | `DeliveryAttempt`, `DeliveryProof`, `FileObject` |
-| Disputas | Contestação, mediação, decisão provisória, revisão e resultado | `Dispute`, `DisputeDecision` |
-| Operações e confiabilidade | Inbox, auditoria, idempotência, jobs e outbox | `Notification`, `AuditEvent`, `IdempotencyRecord`, `ScheduledJob`, `OutboxEvent` |
-| Demonstração | Execuções sintéticas, fixtures e passagem controlada do tempo | `DemoRun` |
-| Piloto | Compra multi-fornecedor, parcialidade, PSP, ERP e rastreamento | `Purchase`, `SupplierOrder`, `FulfillmentLine`, `PaymentAllocation`, `RefundAllocation`, `IntegrationConnection`, `ExternalSkuMapping`, `InventoryIntegrationEvent`, `InventoryReconciliation`, `RoutePlanVersion`, `DriverLocationPoint` |
-
-Estados de pedido, pagamento, custódia e disputa são eixos independentes. O frontend pode usar `allowed_actions` para melhorar a experiência, mas o backend sempre revalida autorização e estado dentro da transação.
-
-## Stack
-
-### Presente no repositório
-
-| Área | Tecnologia |
-|---|---|
-| Linguagem | Python 3.13.15 |
-| API | FastAPI 0.141.x |
-| Validação | Pydantic 2 e pydantic-settings |
-| Persistência | SQLAlchemy 2 |
-| Servidor | Uvicorn |
-| Cliente de testes/HTTP | HTTPX |
-
-### Baseline definida para a demonstração
-
-- PostgreSQL 17 como única fonte de verdade;
-- psycopg 3 em modo síncrono;
-- Alembic para migrações versionadas;
-- worker Python próprio com fila no PostgreSQL;
-- pytest e PostgreSQL real nos testes de integração;
-- Docker Compose, Caddy, volumes privados e GitHub Actions;
-- Sentry ou equivalente, logs JSON e monitoramento do `/health`.
-
-No piloto, a implantação evolui para Kubernetes e Helm, com PostgreSQL/PostGIS, armazenamento compatível com S3, ERP, PSP e Google OR-Tools. O backend permanece um monólito modular; Kubernetes não implica adoção de microserviços.
-
-## Requisitos locais
-
-- Git;
-- Python **3.13.15** ou outra versão compatível com `>=3.13,<3.14`;
-- `venv` e `pip`;
-- PostgreSQL **17** em execução para migrations, login, catálogo e testes de integração.
-
-## Configuração e execução local
+Instale Python 3.13 e uv. Crie dois bancos exclusivos no PostgreSQL 17: um para
+a demo (`rotalog_demo`) e outro para testes (`rotalog_test`). Não aponte testes a
+um banco com dados importantes.
 
 ```bash
-git clone https://github.com/Uninorte-Extensao/rotalog-backend.git
-cd rotalog-backend
-
-python3.13 -m venv .venv
-source .venv/bin/activate
-python -m pip install --upgrade pip
-python -m pip install -e .
-
 cp .env.example .env
-# Edite a URL do PostgreSQL com as credenciais somente no arquivo local .env.
+chmod 600 .env
+# Preencha os campos vazios. Gere os secrets separadamente com:
+python3.13 -c "import secrets; print(secrets.token_urlsafe(48))"
 
-python -m alembic upgrade head
-
-uvicorn rotalog.api.main:app --reload
+uv sync --locked
+uv run --locked alembic upgrade head
+uv run --locked python -m rotalog.demo.seed
+uv run --locked uvicorn rotalog.api.main:app --host 127.0.0.1 --port 8000
 ```
 
-No Windows PowerShell, ative o ambiente com:
-
-```powershell
-.venv\Scripts\Activate.ps1
-```
-
-Com a API em execução:
-
-- healthcheck: `http://127.0.0.1:8000/health`;
-- Swagger UI: `http://127.0.0.1:8000/docs`;
-- OpenAPI JSON: `http://127.0.0.1:8000/openapi.json`.
-
-Secrets não possuem defaults e não devem ser commitidos ou aparecer em logs. A variável `ROTALOG_DATABASE_URL` é obrigatória, inclusive para importar a aplicação. Utilize o arquivo `.env` local ignorado pelo Git. O CI fornece uma URL explícita para um PostgreSQL 17 descartável, com credenciais exclusivamente de teste.
-
-## Demonstração: login e catálogo
-
-Todos os nomes, organizações, usuários, preços e saldos do dataset são **sintéticos**.
-As respostas incluem `is_synthetic: true`, `demo_run_id` e o catálogo traz o selo
-`SIMULAÇÃO`. Nenhum dado da apresentação representa uma transação real.
-
-1. No `.env`, mantenha `ROTALOG_ENVIRONMENT=development`, defina
-   `ROTALOG_DEMO_ENABLED=true` e preencha `ROTALOG_JWT_SECRET` com uma chave aleatória
-   de pelo menos 32 bytes, gerada por `python -c "import secrets; print(secrets.token_urlsafe(48))"`.
-2. Execute `python -m alembic upgrade head`.
-3. Execute `python -m rotalog.demo.seed` e informe uma senha de 12 a 1024 caracteres
-   no prompt. Para automação, forneça `ROTALOG_DEMO_PASSWORD` no ambiente do comando.
-   O seed não roda automaticamente ao iniciar a API e é bloqueado em staging/production.
-4. Inicie `uvicorn rotalog.api.main:app --reload` e abra `/docs`.
-5. Clique em **Authorize**, informe um dos emails abaixo no campo `username` e a
-   senha escolhida no seed. Também é possível chamar `POST /api/v1/auth/login`
-   com formulário `application/x-www-form-urlencoded` (`username`, `password`).
-6. Execute `GET /api/v1/auth/me` e `GET /api/v1/ofertas` no Swagger.
-
-| Perfil sintético | Email |
-|---|---|
-| Comprador | `comprador@demo.rotalog.invalid` |
-| Fornecedor | `fornecedor@demo.rotalog.invalid` |
-| Motorista | `motorista@demo.rotalog.invalid` |
-
-Não há senha padrão no código. O seed grava Argon2id com salt individual e é
-idempotente: repetir o comando preserva usuários, senhas, IDs, preços e estoque já
-existentes. A senha de automação não é impressa. O JWT usa HS256, expira em 15 minutos
-e exige assinatura, emissor e audiência válidos. Contas bloqueadas e execuções
-encerradas perdem acesso imediatamente. Cinco falhas de login iniciam bloqueio
-progressivo, persistido no PostgreSQL. As contas da demo têm uma organização fixa;
-seleção de múltiplas organizações, refresh/logout e recuperação de senha ainda não
-fazem parte deste recorte. Após expirar o token, faça login novamente.
-
-O catálogo lê quatro ofertas reais do banco (arroz, feijão, açúcar e óleo), exige
-`Authorization: Bearer <access_token>` e só retorna a execução sintética do usuário.
-A rota `/api/v1/offers` é um alias para a convenção da V4.1. Use `page` (mínimo 1)
-e `page_size` (padrão 25, máximo 100). Valores monetários são strings decimais no JSON.
-
-### Cadastro e gerenciamento básico pelo Swagger
-
-Com o seed inicializado e a demo habilitada, `POST /api/v1/auth/register` permite
-cadastrar novas contas sintéticas de `comprador` ou `fornecedor` (distribuidor).
-Informe `email` (domínio terminado em `.invalid`), `password` (12 a 1024 caracteres),
-`name`, `organization_name` e `role`. Cada cadastro cria uma organização própria na
-mesma execução sintética do seed. Email duplicado retorna 409 e não deixa uma
-organização órfã. Não há autocadastro de motorista/administrador neste endpoint.
-
-Depois, faça login com o email em `username` e a senha cadastrada. Como fornecedor:
-
-1. `POST /api/v1/products` com `{"name": "Pizza"}` retorna o `id` do produto.
-2. `POST /api/v1/ofertas` com `product_id`, `unit_price: "29.90"`,
-   `minimum_order_quantity: 1` e `available_quantity: 20` cria oferta e saldo inicial
-   na organização do usuário autenticado. Não envie ID de organização no corpo.
-3. `GET /api/v1/ofertas/{id}/estoque` consulta saldo declarado, reservado e disponível.
-4. `PATCH /api/v1/ofertas/{id}/estoque` com `{"available_quantity": 30}` define o
-   novo saldo **total declarado**, não uma entrada/saída incremental.
-5. `GET /api/v1/ofertas` confirma o saldo disponível para compra.
-
-O campo `available_quantity` de entrada representa o total declarado; na resposta,
-`declared_quantity` expõe esse total e `available_quantity` é total menos reservas.
-Reservas não podem ser alteradas por este endpoint. Quantidades devem ser inteiros
-não negativos; não é permitido reduzir o total abaixo do reservado (409). A escrita
-trava a linha do estoque durante a transação. Compradores/motoristas não alteram
-produtos/ofertas/estoque (403); outro fornecedor não consulta o estoque privado nem
-altera sua oferta (404). O catálogo compartilhado continua visível na mesma demo.
-Os aliases em inglês são `POST /api/v1/offers` e
-`GET/PATCH /api/v1/offers/{id}/inventory`.
-
-Essas rotas são exclusivas da demonstração sintética, não um cadastro comercial de
-empresas reais. Produtos, ofertas e contas novos permanecem vinculados à DemoRun.
-
-## Testes e CI
+Em outro terminal, com o mesmo ambiente/arquivo `.env`:
 
 ```bash
-python -m pip install pytest ruff
-ruff check src tests migrations
-python -m pytest
+uv run --locked python -m rotalog.demo.worker
 ```
 
-Para executar também integração, forneça `ROTALOG_TEST_DATABASE_URL` apontando para
-um PostgreSQL 17 dedicado, cujo nome do banco contenha `test`. Cada teste cria e
-remove apenas seu schema temporário; nunca limpa o schema `public`.
-Os workflows de PR e pós-merge fornecem esse banco e executam a suíte completa,
-`alembic upgrade head`, `alembic check`, downgrade e novo upgrade. Os testes cobrem
-banco vazio, snapshot anterior, constraints, seed idempotente, autenticação, tokens
-inválidos/expirados, bloqueio, paginação e isolamento das execuções sintéticas.
-Fora do CI, integração é ignorada quando não há URL de teste; no CI a ausência da
-URL é erro. Secrets de produção não são necessários nesses workflows.
+O worker libera reservas de checkouts vencidos e expira pedidos ainda sem decisão,
+fazendo o reembolso **simulado**. O relógio é real nesta versão; não há integração
+com motorista ou serviço financeiro. A confirmação de pagamento também verifica
+expiração sob lock, sem depender do worker para impedir captura de reserva vencida.
 
-O [registro de arquitetura anterior](docs/arquitetura/2026-09-09-proposta-camadas-globais.md)
-é histórico e foi superado pela organização modular da V4.1 descrita neste README.
+Abra [Swagger](http://127.0.0.1:8000/docs),
+[OpenAPI](http://127.0.0.1:8000/openapi.json) e
+[healthcheck](http://127.0.0.1:8000/health).
 
-## Convenções de integração
+`ROTALOG_DATABASE_URL` é obrigatória inclusive no import. Use somente
+`postgresql+psycopg://...`; credenciais de URL precisam de percent-encoding.
+O seed lê `ROTALOG_DEMO_PASSWORD` do ambiente ou `.env`, ou pede senha se ausente. Não há senha
+ou chave de assinatura padrão. Reexecutar o seed preserva IDs, senhas, preços e
+estoque existentes; ele completa o dataset conhecido da demo após migração.
 
-- prefixo dos endpoints de negócio: `/api/v1`;
-- JSON em `snake_case`;
-- IDs públicos em UUID4;
-- datas e horas em UTC no formato ISO 8601;
-- dinheiro em decimal, nunca `float`;
-- `X-Request-Id` para correlação;
-- comandos repetíveis protegidos por idempotência;
-- respostas de erro estruturadas;
-- alterações de schema sempre acompanhadas por migration;
-- tipos dos clientes web e Android gerados a partir do OpenAPI quando o pipeline estiver disponível.
+### Docker Compose
+
+Preencha `.env`, incluindo `POSTGRES_PASSWORD`, `ROTALOG_JWT_SECRET` e
+`ROTALOG_DEMO_PASSWORD`. Para Compose a URL do banco é construída internamente;
+para comandos fora dos containers é necessário preencher a URL local separadamente.
+Use senha PostgreSQL URL-safe no Compose.
+
+```bash
+docker compose up --build -d
+docker compose logs api worker
+```
+
+O banco não é exposto à rede do host. A API fica em `127.0.0.1:8000`. Migração e
+seed são executados antes de iniciar a API. Os dados ficam em volume persistente;
+`docker compose down` preserva esse volume. Não use `down -v` para atualizar.
+
+## Contas do seed e autenticação
+
+Todas usam a senha fornecida por você ao seed:
+
+| Papel | Email sintético |
+|---|---|
+| `ROTALOG_ADMIN` | `admin@demo.rotalog.invalid` |
+| `BUYER_ADMIN` | `comprador@demo.rotalog.invalid` |
+| `SUPPLIER_OPERATOR` | `fornecedor@demo.rotalog.invalid` |
+| `DRIVER` (sem fluxo operacional) | `motorista@demo.rotalog.invalid` |
+
+Swagger **Authorize** usa `POST /api/v1/auth/login` com formulário `username`
+(email) e `password`. O modo padrão, `client_type=native`, devolve access/refresh
+no JSON. Use o Bearer nas rotas protegidas. JWT dura 10 minutos; refresh é opaco,
+tem somente seu hash persistido, expira com a sessão em 30 dias e gira a cada uso.
+Reutilização revoga a família. Logout, revogação de dispositivo e troca de senha
+invalidam sessões imediatamente no PostgreSQL. Senhas usam Argon2id.
+
+Navegador: use `/auth/login?client_type=browser` a partir de uma origem da allowlist.
+O refresh fica em cookie host-only `HttpOnly`, `SameSite=Lax`, caminho `/api/v1/auth`;
+não aparece no JSON. Access token fica em memória. Refresh/logout por cookie exigem
+`Origin` autorizado e `X-CSRF-Token` recebido no login. Envie `credentials: include`.
+O cliente deve serializar refreshes: repetir refresh antigo revoga a sessão.
+Android usa Bearer/refresh no protocolo, sem cookie e sem depender de CORS.
+No navegador local, use `localhost` para API e portal, ou `127.0.0.1` para ambos;
+misturar os dois hosts torna o cookie cross-site e `SameSite=Lax` impede seu envio.
+
+`GET /api/v1/me` lista organizações e capacidades. `X-Organization-Id` escolhe um
+vínculo autorizado; se omitido, usa a organização inicial da conta. Cada caso de
+uso revalida sessão e `Membership` na transação. UUID não é prova de acesso.
+
+## Fluxo de teste comprador/distribuidora
+
+Todos os caminhos abaixo têm prefixo `/api/v1` e constam no OpenAPI.
+
+1. **Administrador:** login → `POST /admin/products` com variante completa →
+   `POST /admin/products/{id}/publish` com `expected_version`.
+2. **Distribuidora:** `POST /auth/register` com papel `SUPPLIER_OPERATOR` → login →
+   `POST /suppliers/{organization_id}/warehouses`.
+3. **Administrador:** `POST /warehouses/{id}/geocoding-review` confirma coordenadas
+   sintéticas com versão e motivo. Não há geocodificador externo nesta demo.
+4. **Distribuidora:** `POST /suppliers/{id}/offers` informa produto publicado,
+   depósito confirmado, preço decimal e moeda. `POST /inventory/manual-adjustments`
+   declara saldo/segurança com versão e motivo. Reservas não são editáveis.
+5. **Distribuidora:** `POST /demo/capacity-slots` cria janela manual sintética.
+6. **Comprador:** cadastro com `BUYER_ADMIN` → login → `GET /suppliers`,
+   `GET /products`, `GET /offers` e `GET /capacity-slots`.
+7. **Comprador:** `POST /checkouts` informa ofertas, quantidades e janela, com
+   `Idempotency-Key`. A demo admite **um fornecedor e um depósito** por checkout.
+8. **Comprador:** `POST /checkouts/{id}/confirm-payment` com `expected_version` e
+   outra `Idempotency-Key`. Cria `Purchase`, `SupplierOrder`, `OrderItem`, pagamento
+   e alocações em uma transação. O adaptador simula captura; nenhum PSP é chamado.
+9. **Distribuidora:** `GET /supplier-orders` e detalhe mostram seus pedidos pagos.
+   `POST /supplier-orders/{id}/acceptance` decide todas as linhas com versão e chave.
+10. **Distribuidora:** `start-separation` → criação de `fulfillments` →
+    `POST /fulfillments/{id}/separation-results` → `mark-ready`.
+    O fluxo termina em **READY_TO_DISPATCH**. Entrega não é simulada no banco.
+
+Consulta de compras: `GET /purchases`, `/purchases/{id}` e
+`/purchases/{id}/payments`. Resumo financeiro:
+`GET /supplier-orders/{id}/financial-summary`.
+
+O estoque disponível é `max(0, saldo vendável - reservas não refletidas - segurança)`.
+O aceite nesta demo é integral (ou recusa total); `accepts_partial` deve ser `false`.
+As projeções quantitativas já usam os conceitos da V5, mas parcialidade fica para o piloto.
+Locks e constraints impedem overselling. Reserva tem TTL de 15 minutos; após
+pagamento continua comprometida com o pedido. Recusa/expiração/cancelamento
+elegível liberam saldo e capacidade, com reembolso simulado. Preço e embalagem
+ficam em snapshot; mudanças posteriores na oferta não reprecificam uma compra.
+
+Paginação: `page >= 1`, `page_size` padrão 25 e máximo 100. Percorra todas as páginas
+para listar todas as distribuidoras. Erros usam `error.code/message/details/request_id`.
+Versão desatualizada, estoque insuficiente ou chave reutilizada com outro payload:
+409. Acesso sem permissão: 403; recurso privado de outra organização: 404.
+
+### Teste por HTTP com o servidor rodando
+
+```bash
+# Usa a senha do administrador definida em ROTALOG_DEMO_PASSWORD.
+uv run --locked python scripts/smoke_demo.py
+```
+
+Cria contas novas, a variante seca de **Pizza**, depósito/oferta/estoque e compra
+de 3 unidades a R$ 29,90. Verifica pedido, preparação, saldo 20/3/17, idempotência,
+isolamento e revogação, sem imprimir senha ou tokens. Cada execução preserva suas
+fixtures sintéticas. Demo remota exige `--base-url https://... --allow-remote`.
+Use `--browser-origin https://portal.SEUDOMINIO` para testar uma allowlist diferente.
+
+## Testes e migrações
+
+```bash
+uv run --locked ruff check src tests migrations scripts
+uv run --locked pytest
+uv run --locked alembic check
+```
+
+Forneça `ROTALOG_TEST_DATABASE_URL` para banco exclusivo com `test` no nome; cada
+teste cria/remove somente seu próprio schema. Sem URL, integração é ignorada
+localmente e falha no CI. Testes incluem banco vazio, snapshots V4.1/ROT-004,
+centavos sem perda, sessões, CSRF/CORS, permissões, concorrência, checkout,
+pagamento repetido e pedido até prontidão. Workflows existentes não foram alterados.
+
+A revisão `20261019_0004` converte preços e renomeia o saldo preservando dados.
+Produtos históricos incompletos permanecem `DRAFT`; não são publicados inventando
+atributos. Dados sem fornecedor conhecido não recebem depósito fictício nem ficam
+vendáveis. Faça backup antes de migrar dados importantes. Downgrade após criação de
+contas administrativas/sessões/compras V5 é bloqueado: use migração compensatória,
+nunca apague transações para voltar uma versão.
+
+Saldo reservado legado fica `RECONCILING` até reconciliação: não é zerado nem
+transformado em pedido fictício. Novas compras desse saldo ficam bloqueadas.
+
+## Demo online — não é homologação de produção
+
+Use HTTPS com proxy reverso, mantendo banco e porta interna privados. Configure:
+
+- `ROTALOG_ENVIRONMENT=demo`;
+- `ROTALOG_COOKIE_SECURE=true`;
+- `ROTALOG_DEBUG=false`;
+- `ROTALOG_CORS_ORIGINS=["https://portal.SEUDOMINIO"]`, sem caminhos/curingas;
+- secrets próprios protegidos, senha administrativa não distribuída ao cliente,
+  backup e limites de requisição no proxy.
+
+Exemplo de proxy está em `deploy/Caddyfile.example`. Cookies exigem portal/API no
+mesmo site registrável nesta baseline (`SameSite=Lax`). Não troque para cookie
+cross-site sem projetar/testar o protocolo CSRF correspondente. `staging` e
+`production` continuam bloqueando a demo; o ambiente `demo` permite publicar apenas
+esta demonstração sintética. Não há publicação automática nem garantia de prontidão
+para dinheiro/dados reais: MFA, auditoria, recuperação de senha e outros controles
+do piloto permanecem pendentes.
+
+## Compatibilidade e clientes
+
+Para testar manualmente, importe a [coleção e o ambiente Postman](docs/postman/LEIA-ME_POSTMAN.txt)
+ou siga o [guia do Swagger](docs/postman/GUIA_SWAGGER_FASTAPI.txt). Os templates não contêm secrets preenchidos.
+
+Veja [a matriz V5](docs/arquitetura/compatibilidade-v5-demo.md). Esta atualização
+substitui as rotas V4.1 `/auth/me`, `/ofertas`, criação livre em `/products` e
+`PATCH /offers/{id}/inventory` pelos comandos canônicos. Web/mobile devem atualizar
+seus tipos e chamadas pelo `/openapi.json`; mocks devem ficar limitados ao lado do
+entregador e às funcionalidades explicitamente não implementadas.
+
+O [registro de camadas globais](docs/arquitetura/2026-09-09-proposta-camadas-globais.md)
+é histórico, não a arquitetura atual. Não existem entidades `Order`/`OrderLine`;
+a demonstração já usa `Purchase`, `SupplierOrder`, `OrderItem` e `Fulfillment`.
 
 ## Repositórios relacionados
 
 - Backend: https://github.com/Uninorte-Extensao/rotalog-backend
 - Frontend: https://github.com/Uninorte-Extensao/rotalog-frontend
 - Mobile: https://github.com/Uninorte-Extensao/rotalog-mobile
-- Board de implementação: https://trello.com/b/4NmXZdXn/rotalog
-
-## Contribuição
-
-1. Escolha uma task no Backlog e confirme suas dependências e grupo de entrega.
-2. Crie uma branch curta a partir da branch principal.
-3. Implemente regra, migration e testes no mesmo conjunto de mudanças quando aplicável.
-4. Valide compatibilidade do OpenAPI com frontend e mobile.
-5. Abra um pull request descrevendo comportamento, riscos, testes e impacto nos outros repositórios.
-
+- Board: https://trello.com/b/4NmXZdXn/rotalog

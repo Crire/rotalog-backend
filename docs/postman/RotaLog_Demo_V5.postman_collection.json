@@ -1,0 +1,4426 @@
+{
+  "info": {
+    "_postman_id": "93bc49ec-3faf-479c-92bd-345b8d76974a",
+    "name": "RotaLog — Backend Demo V5 — Fluxo comprador e distribuidora",
+    "description": "Coleção da implementação atual: todas as 42 operações HTTP do OpenAPI, com exemplos encadeados. SOMENTE dados sintéticos e pagamentos simulados. Importe também o ambiente; preencha admin_password com a senha do seed. Execute 00–07 em ordem. Pastas 08–10 são ignoradas por padrão (run_optional_actions=false); pasta 11 também (run_browser_examples=false). Não é um fluxo de piloto/produção. Tokens e senhas ficam apenas nas variáveis locais: não exporte ambiente preenchido nem envie a workspace compartilhado.\n\nArquivos: LEIA-ME_POSTMAN.txt e GUIA_SWAGGER_FASTAPI.txt.\n\nFormato estável [Postman Collection 2.1](https://schema.postman.com/json/collection/v2.1.0/docs/index.html). Pastas opcionais usam [pm.execution.skipRequest](https://learning.postman.com/v11/docs/tests-and-scripts/write-scripts/postman-sandbox-reference/pm-execution). Requer Postman/runner com suporte a essa função.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "noauth"
+  },
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "const base = (pm.environment.get(\"base_url\") || \"\").replace(/\\/+$/, \"\");",
+          "if (!base) throw new Error(\"Selecione o ambiente RotaLog Demo V5 local.\");",
+          "if (!/^https?:\\/\\/(localhost|127\\.0\\.0\\.1|\\[::1\\])(?::\\d+)?$/.test(base)) {",
+          " if (pm.environment.get(\"allow_remote_demo\") !== \"true\" || !base.startsWith(\"https://\")) throw new Error(\"Destino remoto exige HTTPS e allow_remote_demo=true. Use somente demo sintética autorizada.\");",
+          "}",
+          "pm.environment.set(\"base_url\", base);"
+        ]
+      }
+    },
+    {
+      "listen": "test",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "if (pm.response.code >= 400) { pm.execution.setNextRequest(null); }"
+        ]
+      }
+    }
+  ],
+  "item": [
+    {
+      "name": "00 — Iniciar novo cenário",
+      "description": "",
+      "item": [
+        {
+          "name": "00.01 — Health e preparação de variáveis",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "auth": {
+              "type": "noauth"
+            },
+            "url": {
+              "raw": "{{base_url}}/health",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "health"
+              ]
+            },
+            "description": "Inicializa um cenário NOVO com emails e chaves de idempotência diferentes. Não limpa nem altera dados existentes. A senha administrativa deve ser informada no ambiente."
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Execute novamente esta requisição somente para iniciar OUTRO cenário.",
+                  "const run = pm.variables.replaceIn(\"{{$guid}}\");",
+                  "pm.environment.set(\"run_id\", run);",
+                  "pm.environment.set(\"supplier_email\", \"distribuidora.\" + run + \"@demo.rotalog.invalid\");",
+                  "pm.environment.set(\"buyer_email\", \"comprador.\" + run + \"@demo.rotalog.invalid\");",
+                  "for (const key of [\"supplier_password\", \"buyer_password\", \"buyer_new_password\"]) {",
+                  " if (!pm.environment.get(key)) pm.environment.set(key, \"Demo-\" + pm.variables.replaceIn(\"{{$guid}}\"));",
+                  "}",
+                  "for (const key of [\"idem_checkout\", \"idem_payment\", \"idem_acceptance\", \"idem_cancel_checkout\", \"idem_cancel_payment\"]) {",
+                  " pm.environment.set(key, key + \"-\" + run);",
+                  "}",
+                  "pm.environment.set(\"slot_starts_at\", new Date(Date.now() + 3600000).toISOString());",
+                  "pm.environment.set(\"slot_ends_at\", new Date(Date.now() + 86400000).toISOString());",
+                  "for (const key of [\"admin_access_token\",\"admin_refresh_token\",\"admin_user_id\",\"admin_organization_id\",\"supplier_access_token\",\"supplier_refresh_token\",\"supplier_user_id\",\"supplier_organization_id\",\"buyer_access_token\",\"buyer_refresh_token\",\"buyer_user_id\",\"buyer_organization_id\",\"aux_access_token\",\"aux_refresh_token\",\"aux_user_id\",\"aux_organization_id\",\"browser_access_token\",\"browser_csrf_token\",\"product_id\",\"product_version\",\"warehouse_id\",\"warehouse_version\",\"offer_id\",\"offer_version\",\"inventory_id\",\"inventory_version\",\"slot_id\",\"slot_version\",\"checkout_id\",\"checkout_version\",\"purchase_id\",\"payment_id\",\"supplier_order_id\",\"supplier_order_version\",\"order_item_id\",\"fulfillment_id\",\"fulfillment_version\",\"fulfillment_line_id\",\"cancel_checkout_id\",\"cancel_checkout_version\",\"cancel_order_id\",\"cancel_order_version\",\"cancel_purchase_id\"]) pm.environment.set(key, \"\");",
+                  "if (!pm.environment.get(\"admin_password\")) throw new Error(\"Preencha admin_password com a senha escolhida no seed. Nenhuma senha padrão é fornecida.\");",
+                  "pm.environment.set(\"payment_expected_version\", \"\"); pm.environment.set(\"acceptance_expected_version\", \"\");"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", function () { pm.response.to.have.status(200); });",
+                  "if (pm.response.code === 200) {",
+                  "const data = pm.response.json();",
+                  "pm.test(\"API viva\", () => pm.expect(data.status).to.eql(\"ok\"));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "01 — Administrador: produto canônico",
+      "description": "",
+      "item": [
+        {
+          "name": "01.01 — Login do administrador",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/x-www-form-urlencoded"
+              }
+            ],
+            "auth": {
+              "type": "noauth"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/login?client_type=native",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "login"
+              ],
+              "query": [
+                {
+                  "key": "client_type",
+                  "value": "native"
+                }
+              ]
+            },
+            "description": "Login OAuth2 por formulário. client_type=native devolve refresh opaco no JSON. Não misture este modo com cookies de navegador.",
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "username",
+                  "value": "{{admin_email}}",
+                  "type": "text"
+                },
+                {
+                  "key": "password",
+                  "value": "{{admin_password}}",
+                  "type": "text"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", function () { pm.response.to.have.status(200); });",
+                  "if (pm.response.code === 200) {",
+                  "const data = pm.response.json();",
+                  "pm.environment.set(\"admin_access_token\", String(data.access_token));",
+                  "pm.environment.set(\"admin_refresh_token\", String(data.refresh_token));",
+                  "pm.environment.set(\"admin_user_id\", String(data.user.id));",
+                  "pm.environment.set(\"admin_organization_id\", String(data.user.organization_id));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "01.02 — Cadastrar variante Pizza",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Organization-Id",
+                "value": "{{admin_organization_id}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{admin_access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/admin/products",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "admin",
+                "products"
+              ]
+            },
+            "description": "Somente ROTALOG_ADMIN. Variante de mistura seca industrializada, não pizza fresca/refrigerada. Nasce DRAFT.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Pizza — mistura seca lacrada 400 g ({{run_id}})\",\n  \"brand\": \"Marca Sintética\",\n  \"category\": \"ALIMENTO_SECO_INDUSTRIALIZADO\",\n  \"gtin\": null,\n  \"net_content\": 400,\n  \"net_content_unit\": \"g\",\n  \"packaging_type\": \"Pacote lacrado\",\n  \"packaging_quantity\": 1,\n  \"gross_weight_grams\": 450,\n  \"volume_cm3\": 1000,\n  \"variant_attributes\": {\n    \"origem\": \"SIMULAÇÃO\",\n    \"apresentacao\": \"mistura seca\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 201\", function () { pm.response.to.have.status(201); });",
+                  "if (pm.response.code === 201) {",
+                  "const data = pm.response.json();",
+                  "pm.environment.set(\"product_id\", String(data.id));",
+                  "pm.environment.set(\"product_version\", String(data.version));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "01.03 — Publicar variante",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Organization-Id",
+                "value": "{{admin_organization_id}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{admin_access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/admin/products/{{product_id}}/publish",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "admin",
+                "products",
+                "{{product_id}}",
+                "publish"
+              ]
+            },
+            "description": "Dados exclusivamente sintéticos. Confira os pré-requisitos nas instruções e execute as pastas em ordem.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"expected_version\": {{product_version}}\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", function () { pm.response.to.have.status(200); });",
+                  "if (pm.response.code === 200) {",
+                  "const data = pm.response.json();",
+                  "pm.environment.set(\"product_version\", String(data.version));",
+                  "pm.test(\"Variante publicada\", () => pm.expect(data.publication_state).to.eql(\"PUBLISHED\"));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "02 — Distribuidora: cadastro e depósito",
+      "description": "",
+      "item": [
+        {
+          "name": "02.01 — Cadastrar distribuidora sintética",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "auth": {
+              "type": "noauth"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/register",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "register"
+              ]
+            },
+            "description": "Extensão da demo: domínio .invalid e organização nova. Não concede acesso administrativo.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{supplier_email}}\",\n  \"password\": \"{{supplier_password}}\",\n  \"name\": \"Distribuidor Sintético\",\n  \"organization_name\": \"Distribuidora Pizza Sintética {{run_id}}\",\n  \"role\": \"SUPPLIER_OPERATOR\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 201\", function () { pm.response.to.have.status(201); });",
+                  "if (pm.response.code === 201) {",
+                  "const data = pm.response.json();",
+                  "pm.environment.set(\"supplier_user_id\", String(data.id));",
+                  "pm.environment.set(\"supplier_organization_id\", String(data.organization_id));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "02.02 — Login da distribuidora",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/x-www-form-urlencoded"
+              }
+            ],
+            "auth": {
+              "type": "noauth"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/login?client_type=native",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "login"
+              ],
+              "query": [
+                {
+                  "key": "client_type",
+                  "value": "native"
+                }
+              ]
+            },
+            "description": "Login OAuth2 por formulário. client_type=native devolve refresh opaco no JSON. Não misture este modo com cookies de navegador.",
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "username",
+                  "value": "{{supplier_email}}",
+                  "type": "text"
+                },
+                {
+                  "key": "password",
+                  "value": "{{supplier_password}}",
+                  "type": "text"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", function () { pm.response.to.have.status(200); });",
+                  "if (pm.response.code === 200) {",
+                  "const data = pm.response.json();",
+                  "pm.environment.set(\"supplier_access_token\", String(data.access_token));",
+                  "pm.environment.set(\"supplier_refresh_token\", String(data.refresh_token));",
+                  "pm.environment.set(\"supplier_user_id\", String(data.user.id));",
+                  "pm.environment.set(\"supplier_organization_id\", String(data.user.organization_id));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "02.03 — Perfil da distribuidora",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Organization-Id",
+                "value": "{{supplier_organization_id}}"
+              }
+            ],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{supplier_access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/me",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "me"
+              ]
+            },
+            "description": "Dados exclusivamente sintéticos. Confira os pré-requisitos nas instruções e execute as pastas em ordem."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", function () { pm.response.to.have.status(200); });",
+                  "if (pm.response.code === 200) {",
+                  "const data = pm.response.json();",
+                  "",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "02.04 — Cadastrar depósito próprio",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Organization-Id",
+                "value": "{{supplier_organization_id}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{supplier_access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/suppliers/{{supplier_organization_id}}/warehouses",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "suppliers",
+                "{{supplier_organization_id}}",
+                "warehouses"
+              ]
+            },
+            "description": "Origem sintética. Nasce PENDING; ofertas exigem revisão do administrador.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Depósito Pizza Sintético\",\n  \"address\": \"Endereço fictício para demonstração, Manaus\",\n  \"opening_hours\": \"Seg–Sex 08:00–18:00\",\n  \"region\": \"MANAUS\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 201\", function () { pm.response.to.have.status(201); });",
+                  "if (pm.response.code === 201) {",
+                  "const data = pm.response.json();",
+                  "pm.environment.set(\"warehouse_id\", String(data.id));",
+                  "pm.environment.set(\"warehouse_version\", String(data.version));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "02.05 — Listar depósitos próprios",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Organization-Id",
+                "value": "{{supplier_organization_id}}"
+              }
+            ],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{supplier_access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/warehouses?page={{page}}&page_size={{page_size}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "warehouses"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "{{page}}"
+                },
+                {
+                  "key": "page_size",
+                  "value": "{{page_size}}"
+                }
+              ]
+            },
+            "description": "Somente origens permitidas ao fornecedor autenticado."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", function () { pm.response.to.have.status(200); });",
+                  "if (pm.response.code === 200) {",
+                  "const data = pm.response.json();",
+                  "",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "03 — Administrador: confirmar origem",
+      "description": "",
+      "item": [
+        {
+          "name": "03.01 — Revisar coordenadas sintéticas",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Organization-Id",
+                "value": "{{admin_organization_id}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{admin_access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/warehouses/{{warehouse_id}}/geocoding-review",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "warehouses",
+                "{{warehouse_id}}",
+                "geocoding-review"
+              ]
+            },
+            "description": "Dados exclusivamente sintéticos. Confira os pré-requisitos nas instruções e execute as pastas em ordem.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"expected_version\": {{warehouse_version}},\n  \"latitude\": \"-3.100000\",\n  \"longitude\": \"-60.000000\",\n  \"reason\": \"Coordenadas sintéticas confirmadas para teste; sem geocodificador real\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", function () { pm.response.to.have.status(200); });",
+                  "if (pm.response.code === 200) {",
+                  "const data = pm.response.json();",
+                  "pm.environment.set(\"warehouse_version\", String(data.version));",
+                  "pm.test(\"Origem confirmada\", () => pm.expect(data.geocoding_state).to.eql(\"CONFIRMED\"));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "04 — Distribuidora: oferta, estoque e capacidade",
+      "description": "",
+      "item": [
+        {
+          "name": "04.01 — Publicar oferta da Pizza",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Organization-Id",
+                "value": "{{supplier_organization_id}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{supplier_access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/suppliers/{{supplier_organization_id}}/offers",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "suppliers",
+                "{{supplier_organization_id}}",
+                "offers"
+              ]
+            },
+            "description": "Preço deve ser string decimal. A oferta inicia com estoque zero.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"product_id\": \"{{product_id}}\",\n  \"warehouse_id\": \"{{warehouse_id}}\",\n  \"unit_price\": \"{{unit_price}}\",\n  \"currency\": \"BRL\",\n  \"minimum_order_quantity\": 1\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 201\", function () { pm.response.to.have.status(201); });",
+                  "if (pm.response.code === 201) {",
+                  "const data = pm.response.json();",
+                  "pm.environment.set(\"offer_id\", String(data.id));",
+                  "pm.environment.set(\"offer_version\", String(data.version));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "04.02 — Consultar estoque inicial e capturar versão",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Organization-Id",
+                "value": "{{supplier_organization_id}}"
+              }
+            ],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{supplier_access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/inventory?page={{page}}&page_size={{page_size}}&offer_id={{offer_id}}&warehouse_id={{warehouse_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "inventory"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "{{page}}"
+                },
+                {
+                  "key": "page_size",
+                  "value": "{{page_size}}"
+                },
+                {
+                  "key": "offer_id",
+                  "value": "{{offer_id}}"
+                },
+                {
+                  "key": "warehouse_id",
+                  "value": "{{warehouse_id}}"
+                }
+              ]
+            },
+            "description": "Consulta privada. A versão pode mudar após reservas, liberações e ajustes."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", function () { pm.response.to.have.status(200); });",
+                  "if (pm.response.code === 200) {",
+                  "const data = pm.response.json();",
+                  "const row = data.items.find(x => x.offer_id === pm.environment.get(\"offer_id\"));",
+                  "if (!row) throw new Error(\"Saldo da oferta não encontrado\");",
+                  "pm.environment.set(\"inventory_id\", String(row.id));",
+                  "pm.environment.set(\"inventory_version\", String(row.version));",
+                  "pm.test(\"Reserva respeitada\", () => pm.expect(row.effective_sellable_quantity).to.eql(Math.max(0, row.external_sellable_quantity - row.rotalog_reserved_not_reflected_quantity - row.safety_stock_quantity)));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "04.03 — Declarar estoque de 20 unidades",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Organization-Id",
+                "value": "{{supplier_organization_id}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{supplier_access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/inventory/manual-adjustments",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "inventory",
+                "manual-adjustments"
+              ]
+            },
+            "description": "Define saldo TOTAL vendável; não é quantidade incremental. Não altera reservas. Exige motivo e versão atual.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"expected_version\": {{inventory_version}},\n  \"offer_id\": \"{{offer_id}}\",\n  \"warehouse_id\": \"{{warehouse_id}}\",\n  \"external_sellable_quantity\": {{stock_total}},\n  \"safety_stock_quantity\": 0,\n  \"reason\": \"Saldo inicial sintético para testar compra de Pizza\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", function () { pm.response.to.have.status(200); });",
+                  "if (pm.response.code === 200) {",
+                  "const data = pm.response.json();",
+                  "pm.environment.set(\"inventory_id\", String(data.id));",
+                  "pm.environment.set(\"inventory_version\", String(data.version));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "04.04 — Criar janela manual da demo",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Organization-Id",
+                "value": "{{supplier_organization_id}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{supplier_access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/demo/capacity-slots",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "demo",
+                "capacity-slots"
+              ]
+            },
+            "description": "Extensão sintética. Datas UTC futuras geradas na etapa 00; capacidade em unidades, sem agendamento real de transporte.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"warehouse_id\": \"{{warehouse_id}}\",\n  \"starts_at\": \"{{slot_starts_at}}\",\n  \"ends_at\": \"{{slot_ends_at}}\",\n  \"total_quantity\": {{capacity_total}}\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 201\", function () { pm.response.to.have.status(201); });",
+                  "if (pm.response.code === 201) {",
+                  "const data = pm.response.json();",
+                  "pm.environment.set(\"slot_id\", String(data.id));",
+                  "pm.environment.set(\"slot_version\", String(data.version));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "04.05 — Consultar capacidade",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Organization-Id",
+                "value": "{{supplier_organization_id}}"
+              }
+            ],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{supplier_access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/capacity-slots?page={{page}}&page_size={{page_size}}&warehouse_id={{warehouse_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "capacity-slots"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "{{page}}"
+                },
+                {
+                  "key": "page_size",
+                  "value": "{{page_size}}"
+                },
+                {
+                  "key": "warehouse_id",
+                  "value": "{{warehouse_id}}"
+                }
+              ]
+            },
+            "description": "Dados exclusivamente sintéticos. Confira os pré-requisitos nas instruções e execute as pastas em ordem."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", function () { pm.response.to.have.status(200); });",
+                  "if (pm.response.code === 200) {",
+                  "const data = pm.response.json();",
+                  "const row = data.items.find(x => x.id === pm.environment.get(\"slot_id\"));",
+                  "if (row) pm.environment.set(\"slot_version\", String(row.version));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "05 — Comprador: cadastro, catálogo e compra",
+      "description": "",
+      "item": [
+        {
+          "name": "05.01 — Cadastrar comprador sintético",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "auth": {
+              "type": "noauth"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/register",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "register"
+              ]
+            },
+            "description": "Dados exclusivamente sintéticos. Confira os pré-requisitos nas instruções e execute as pastas em ordem.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{buyer_email}}\",\n  \"password\": \"{{buyer_password}}\",\n  \"name\": \"Comprador Sintético\",\n  \"organization_name\": \"Mercado Sintético {{run_id}}\",\n  \"role\": \"BUYER_ADMIN\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 201\", function () { pm.response.to.have.status(201); });",
+                  "if (pm.response.code === 201) {",
+                  "const data = pm.response.json();",
+                  "pm.environment.set(\"buyer_user_id\", String(data.id));",
+                  "pm.environment.set(\"buyer_organization_id\", String(data.organization_id));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "05.02 — Login do comprador",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/x-www-form-urlencoded"
+              }
+            ],
+            "auth": {
+              "type": "noauth"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/login?client_type=native",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "login"
+              ],
+              "query": [
+                {
+                  "key": "client_type",
+                  "value": "native"
+                }
+              ]
+            },
+            "description": "Login OAuth2 por formulário. client_type=native devolve refresh opaco no JSON. Não misture este modo com cookies de navegador.",
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "username",
+                  "value": "{{buyer_email}}",
+                  "type": "text"
+                },
+                {
+                  "key": "password",
+                  "value": "{{buyer_password}}",
+                  "type": "text"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", function () { pm.response.to.have.status(200); });",
+                  "if (pm.response.code === 200) {",
+                  "const data = pm.response.json();",
+                  "pm.environment.set(\"buyer_access_token\", String(data.access_token));",
+                  "pm.environment.set(\"buyer_refresh_token\", String(data.refresh_token));",
+                  "pm.environment.set(\"buyer_user_id\", String(data.user.id));",
+                  "pm.environment.set(\"buyer_organization_id\", String(data.user.organization_id));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "05.03 — Perfil, organizações e capacidades",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Organization-Id",
+                "value": "{{buyer_organization_id}}"
+              }
+            ],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{buyer_access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/me",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "me"
+              ]
+            },
+            "description": "Dados exclusivamente sintéticos. Confira os pré-requisitos nas instruções e execute as pastas em ordem."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", function () { pm.response.to.have.status(200); });",
+                  "if (pm.response.code === 200) {",
+                  "const data = pm.response.json();",
+                  "",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "05.04 — Listar distribuidoras",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Organization-Id",
+                "value": "{{buyer_organization_id}}"
+              }
+            ],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{buyer_access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/suppliers?page={{page}}&page_size={{page_size}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "suppliers"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "{{page}}"
+                },
+                {
+                  "key": "page_size",
+                  "value": "{{page_size}}"
+                }
+              ]
+            },
+            "description": "Percorra page=1,2,... até atingir total para ver TODAS as distribuidoras; esta requisição lista uma página."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", function () { pm.response.to.have.status(200); });",
+                  "if (pm.response.code === 200) {",
+                  "const data = pm.response.json();",
+                  "pm.test(\"Diretório sintético paginado\", () => pm.expect(data.is_synthetic).to.eql(true));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "05.05 — Pesquisar produtos publicados",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Organization-Id",
+                "value": "{{buyer_organization_id}}"
+              }
+            ],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{buyer_access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/products?page={{page}}&page_size={{page_size}}&search=Pizza",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "products"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "{{page}}"
+                },
+                {
+                  "key": "page_size",
+                  "value": "{{page_size}}"
+                },
+                {
+                  "key": "search",
+                  "value": "Pizza"
+                }
+              ]
+            },
+            "description": "Dados exclusivamente sintéticos. Confira os pré-requisitos nas instruções e execute as pastas em ordem."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", function () { pm.response.to.have.status(200); });",
+                  "if (pm.response.code === 200) {",
+                  "const data = pm.response.json();",
+                  "",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "05.06 — Detalhar a variante",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Organization-Id",
+                "value": "{{buyer_organization_id}}"
+              }
+            ],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{buyer_access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/products/{{product_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "products",
+                "{{product_id}}"
+              ]
+            },
+            "description": "Dados exclusivamente sintéticos. Confira os pré-requisitos nas instruções e execute as pastas em ordem."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", function () { pm.response.to.have.status(200); });",
+                  "if (pm.response.code === 200) {",
+                  "const data = pm.response.json();",
+                  "",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "05.07 — Comparar ofertas da distribuidora",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Organization-Id",
+                "value": "{{buyer_organization_id}}"
+              }
+            ],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{buyer_access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/offers?page={{page}}&page_size={{page_size}}&product_id={{product_id}}&supplier_id={{supplier_organization_id}}&region=MANAUS",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "offers"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "{{page}}"
+                },
+                {
+                  "key": "page_size",
+                  "value": "{{page_size}}"
+                },
+                {
+                  "key": "product_id",
+                  "value": "{{product_id}}"
+                },
+                {
+                  "key": "supplier_id",
+                  "value": "{{supplier_organization_id}}"
+                },
+                {
+                  "key": "region",
+                  "value": "MANAUS"
+                },
+                {
+                  "key": "window_start",
+                  "value": "{{slot_starts_at}}",
+                  "disabled": true
+                },
+                {
+                  "key": "window_end",
+                  "value": "{{slot_ends_at}}",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Filtros opcionais window_start/window_end podem ser ativados; timestamps devem conter fuso."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", function () { pm.response.to.have.status(200); });",
+                  "if (pm.response.code === 200) {",
+                  "const data = pm.response.json();",
+                  "",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "05.08 — Consultar janela da compra",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Organization-Id",
+                "value": "{{buyer_organization_id}}"
+              }
+            ],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{buyer_access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/capacity-slots?page={{page}}&page_size={{page_size}}&warehouse_id={{warehouse_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "capacity-slots"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "{{page}}"
+                },
+                {
+                  "key": "page_size",
+                  "value": "{{page_size}}"
+                },
+                {
+                  "key": "warehouse_id",
+                  "value": "{{warehouse_id}}"
+                }
+              ]
+            },
+            "description": "Dados exclusivamente sintéticos. Confira os pré-requisitos nas instruções e execute as pastas em ordem."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", function () { pm.response.to.have.status(200); });",
+                  "if (pm.response.code === 200) {",
+                  "const data = pm.response.json();",
+                  "const row = data.items.find(x => x.id === pm.environment.get(\"slot_id\"));",
+                  "if (row) pm.environment.set(\"slot_version\", String(row.version));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "05.09 — Criar checkout e reservar 3 unidades",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Organization-Id",
+                "value": "{{buyer_organization_id}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{idem_checkout}}"
+              }
+            ],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{buyer_access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/checkouts",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "checkouts"
+              ]
+            },
+            "description": "Um fornecedor/depósito por checkout. Reserva por até 15 minutos. Reenvie SEM mudar chave/corpo para testar idempotência.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"items\": [\n    {\n      \"offer_id\": \"{{offer_id}}\",\n      \"quantity\": {{quantity_ordered}}\n    }\n  ],\n  \"capacity_slot_id\": \"{{slot_id}}\",\n  \"accepts_partial\": false\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 201\", function () { pm.response.to.have.status(201); });",
+                  "if (pm.response.code === 201) {",
+                  "const data = pm.response.json();",
+                  "pm.environment.set(\"checkout_id\", String(data.id));",
+                  "pm.environment.set(\"checkout_version\", String(data.version));",
+                  "pm.environment.set(\"checkout_total\", String(data.total));",
+                  "pm.environment.set(\"payment_expected_version\", String(data.version));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "05.10 — Consultar checkout",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Organization-Id",
+                "value": "{{buyer_organization_id}}"
+              }
+            ],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{buyer_access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/checkouts/{{checkout_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "checkouts",
+                "{{checkout_id}}"
+              ]
+            },
+            "description": "Dados exclusivamente sintéticos. Confira os pré-requisitos nas instruções e execute as pastas em ordem."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", function () { pm.response.to.have.status(200); });",
+                  "if (pm.response.code === 200) { const data = pm.response.json(); pm.environment.set(\"checkout_version\", String(data.version));",
+                  "if (data.state === \"READY_FOR_PAYMENT\") pm.environment.set(\"payment_expected_version\", String(data.version)); }"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "05.11 — Confirmar pagamento SIMULADO",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Organization-Id",
+                "value": "{{buyer_organization_id}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{idem_payment}}"
+              }
+            ],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{buyer_access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/checkouts/{{checkout_id}}/confirm-payment",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "checkouts",
+                "{{checkout_id}}",
+                "confirm-payment"
+              ]
+            },
+            "description": "Não cobra dinheiro real. Repetir a mesma chave e o mesmo corpo retorna a compra existente.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"expected_version\": {{payment_expected_version}}\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", function () { pm.response.to.have.status(200); });",
+                  "if (pm.response.code === 200) {",
+                  "const data = pm.response.json();",
+                  "pm.environment.set(\"purchase_id\", String(data.purchase_id));",
+                  "pm.environment.set(\"payment_id\", String(data.payment_id));",
+                  "pm.environment.set(\"supplier_order_id\", String(data.supplier_order_ids[0]));",
+                  "pm.test(\"Pagamento sintético capturado\", () => { pm.expect(data.provider).to.eql(\"SIMULATED\"); pm.expect(data.payment_state).to.eql(\"CAPTURED\"); pm.expect(data.total).to.eql(pm.environment.get(\"checkout_total\")); });",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "05.12 — Listar compras do comprador",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Organization-Id",
+                "value": "{{buyer_organization_id}}"
+              }
+            ],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{buyer_access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/purchases?page={{page}}&page_size={{page_size}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "purchases"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "{{page}}"
+                },
+                {
+                  "key": "page_size",
+                  "value": "{{page_size}}"
+                }
+              ]
+            },
+            "description": "Dados exclusivamente sintéticos. Confira os pré-requisitos nas instruções e execute as pastas em ordem."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", function () { pm.response.to.have.status(200); });",
+                  "if (pm.response.code === 200) {",
+                  "const data = pm.response.json();",
+                  "",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "05.13 — Detalhar compra",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Organization-Id",
+                "value": "{{buyer_organization_id}}"
+              }
+            ],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{buyer_access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/purchases/{{purchase_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "purchases",
+                "{{purchase_id}}"
+              ]
+            },
+            "description": "Dados exclusivamente sintéticos. Confira os pré-requisitos nas instruções e execute as pastas em ordem."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", function () { pm.response.to.have.status(200); });",
+                  "if (pm.response.code === 200) {",
+                  "const data = pm.response.json();",
+                  "",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "05.14 — Consultar pagamento da compra",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Organization-Id",
+                "value": "{{buyer_organization_id}}"
+              }
+            ],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{buyer_access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/purchases/{{purchase_id}}/payments",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "purchases",
+                "{{purchase_id}}",
+                "payments"
+              ]
+            },
+            "description": "Dados exclusivamente sintéticos. Confira os pré-requisitos nas instruções e execute as pastas em ordem."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", function () { pm.response.to.have.status(200); });",
+                  "if (pm.response.code === 200) {",
+                  "const data = pm.response.json();",
+                  "",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "06 — Distribuidora: pedido e preparação",
+      "description": "",
+      "item": [
+        {
+          "name": "06.01 — Listar pedidos recebidos",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Organization-Id",
+                "value": "{{supplier_organization_id}}"
+              }
+            ],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{supplier_access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/supplier-orders?page={{page}}&page_size={{page_size}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "supplier-orders"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "{{page}}"
+                },
+                {
+                  "key": "page_size",
+                  "value": "{{page_size}}"
+                }
+              ]
+            },
+            "description": "Somente pedidos pagos autorizados para esta organização. Em um cenário novo haverá um pedido; percorrer páginas em cenários maiores."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", function () { pm.response.to.have.status(200); });",
+                  "if (pm.response.code === 200) {",
+                  "const data = pm.response.json();",
+                  "pm.test(\"Pedido próprio recebido\", () => pm.expect(data.items.some(x => x.id === pm.environment.get(\"supplier_order_id\"))).to.eql(true));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "06.02 — Detalhar pedido e capturar versão/linha",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Organization-Id",
+                "value": "{{supplier_organization_id}}"
+              }
+            ],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{supplier_access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/supplier-orders/{{supplier_order_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "supplier-orders",
+                "{{supplier_order_id}}"
+              ]
+            },
+            "description": "Dados exclusivamente sintéticos. Confira os pré-requisitos nas instruções e execute as pastas em ordem."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", function () { pm.response.to.have.status(200); });",
+                  "if (pm.response.code === 200) {",
+                  "const data = pm.response.json();",
+                  "pm.environment.set(\"supplier_order_id\", String(data.id));",
+                  "pm.environment.set(\"supplier_order_version\", String(data.version));",
+                  "pm.environment.set(\"order_item_id\", String(data.items[0].id));",
+                  "if (data.state === \"AWAITING_SUPPLIER_DECISION\") pm.environment.set(\"acceptance_expected_version\", String(data.version));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "06.03 — Resumo financeiro protegido",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Organization-Id",
+                "value": "{{supplier_organization_id}}"
+              }
+            ],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{supplier_access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/supplier-orders/{{supplier_order_id}}/financial-summary",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "supplier-orders",
+                "{{supplier_order_id}}",
+                "financial-summary"
+              ]
+            },
+            "description": "Dados exclusivamente sintéticos. Confira os pré-requisitos nas instruções e execute as pastas em ordem."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", function () { pm.response.to.have.status(200); });",
+                  "if (pm.response.code === 200) {",
+                  "const data = pm.response.json();",
+                  "pm.test(\"Somente simulação\", () => pm.expect(data.provider).to.eql(\"SIMULATED\"));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "06.04 — Aceitar integralmente o pedido",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Organization-Id",
+                "value": "{{supplier_organization_id}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{idem_acceptance}}"
+              }
+            ],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{supplier_access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/supplier-orders/{{supplier_order_id}}/acceptance",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "supplier-orders",
+                "{{supplier_order_id}}",
+                "acceptance"
+              ]
+            },
+            "description": "Envie todas as linhas. Nesta demo aceite integral ou recusa total; para recusar este pedido novo, use zero ANTES do aceite e não continue separação.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"expected_version\": {{acceptance_expected_version}},\n  \"lines\": [\n    {\n      \"order_item_id\": \"{{order_item_id}}\",\n      \"accepted_quantity\": {{quantity_ordered}}\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", function () { pm.response.to.have.status(200); });",
+                  "if (pm.response.code === 200) {",
+                  "const data = pm.response.json();",
+                  "pm.environment.set(\"supplier_order_id\", String(data.id));",
+                  "pm.environment.set(\"supplier_order_version\", String(data.version));",
+                  "pm.environment.set(\"order_item_id\", String(data.items[0].id));",
+                  "pm.test(\"Aceito\", () => pm.expect(data.state).to.eql(\"ACCEPTED\"));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "06.05 — Iniciar separação",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Organization-Id",
+                "value": "{{supplier_organization_id}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{supplier_access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/supplier-orders/{{supplier_order_id}}/start-separation",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "supplier-orders",
+                "{{supplier_order_id}}",
+                "start-separation"
+              ]
+            },
+            "description": "Dados exclusivamente sintéticos. Confira os pré-requisitos nas instruções e execute as pastas em ordem.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"expected_version\": {{supplier_order_version}}\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", function () { pm.response.to.have.status(200); });",
+                  "if (pm.response.code === 200) {",
+                  "const data = pm.response.json();",
+                  "pm.environment.set(\"supplier_order_id\", String(data.id));",
+                  "pm.environment.set(\"supplier_order_version\", String(data.version));",
+                  "pm.environment.set(\"order_item_id\", String(data.items[0].id));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "06.06 — Criar lote de atendimento",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Organization-Id",
+                "value": "{{supplier_organization_id}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{supplier_access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/supplier-orders/{{supplier_order_id}}/fulfillments",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "supplier-orders",
+                "{{supplier_order_id}}",
+                "fulfillments"
+              ]
+            },
+            "description": "Incrementa a versão do PEDIDO também. A resposta contém versão do FULFILLMENT; não confunda os agregados.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"expected_version\": {{supplier_order_version}},\n  \"lines\": [\n    {\n      \"order_item_id\": \"{{order_item_id}}\",\n      \"allocated_quantity\": {{quantity_ordered}}\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 201\", function () { pm.response.to.have.status(201); });",
+                  "if (pm.response.code === 201) {",
+                  "const data = pm.response.json();",
+                  "pm.environment.set(\"fulfillment_id\", String(data.id));",
+                  "pm.environment.set(\"fulfillment_version\", String(data.version));",
+                  "pm.environment.set(\"fulfillment_line_id\", String(data.lines[0].id));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "06.07 — Registrar quantidades separadas",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Organization-Id",
+                "value": "{{supplier_organization_id}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{supplier_access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/fulfillments/{{fulfillment_id}}/separation-results",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "fulfillments",
+                "{{fulfillment_id}}",
+                "separation-results"
+              ]
+            },
+            "description": "Dados exclusivamente sintéticos. Confira os pré-requisitos nas instruções e execute as pastas em ordem.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"expected_version\": {{fulfillment_version}},\n  \"lines\": [\n    {\n      \"fulfillment_line_id\": \"{{fulfillment_line_id}}\",\n      \"separated_quantity\": {{quantity_ordered}}\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", function () { pm.response.to.have.status(200); });",
+                  "if (pm.response.code === 200) {",
+                  "const data = pm.response.json();",
+                  "pm.environment.set(\"fulfillment_version\", String(data.version));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "06.08 — Marcar lote pronto",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Organization-Id",
+                "value": "{{supplier_organization_id}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{supplier_access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/fulfillments/{{fulfillment_id}}/mark-ready",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "fulfillments",
+                "{{fulfillment_id}}",
+                "mark-ready"
+              ]
+            },
+            "description": "Dados exclusivamente sintéticos. Confira os pré-requisitos nas instruções e execute as pastas em ordem.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"expected_version\": {{fulfillment_version}}\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", function () { pm.response.to.have.status(200); });",
+                  "if (pm.response.code === 200) {",
+                  "const data = pm.response.json();",
+                  "pm.environment.set(\"fulfillment_version\", String(data.version));",
+                  "pm.test(\"Lote pronto\", () => pm.expect(data.state).to.eql(\"READY_TO_DISPATCH\"));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "06.09 — Verificar pedido pronto",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Organization-Id",
+                "value": "{{supplier_organization_id}}"
+              }
+            ],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{supplier_access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/supplier-orders/{{supplier_order_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "supplier-orders",
+                "{{supplier_order_id}}"
+              ]
+            },
+            "description": "Não há envio/entrega real. Frontend/mobile devem mockar o lado do entregador."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", function () { pm.response.to.have.status(200); });",
+                  "if (pm.response.code === 200) {",
+                  "const data = pm.response.json();",
+                  "pm.environment.set(\"supplier_order_id\", String(data.id));",
+                  "pm.environment.set(\"supplier_order_version\", String(data.version));",
+                  "pm.environment.set(\"order_item_id\", String(data.items[0].id));",
+                  "pm.test(\"Fim do recorte: pronto para despacho\", () => pm.expect(data.state).to.eql(\"READY_TO_DISPATCH\"));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "06.10 — Confirmar estoque e reservas",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Organization-Id",
+                "value": "{{supplier_organization_id}}"
+              }
+            ],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{supplier_access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/inventory?page={{page}}&page_size={{page_size}}&offer_id={{offer_id}}&warehouse_id={{warehouse_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "inventory"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "{{page}}"
+                },
+                {
+                  "key": "page_size",
+                  "value": "{{page_size}}"
+                },
+                {
+                  "key": "offer_id",
+                  "value": "{{offer_id}}"
+                },
+                {
+                  "key": "warehouse_id",
+                  "value": "{{warehouse_id}}"
+                }
+              ]
+            },
+            "description": "Consulta privada. A versão pode mudar após reservas, liberações e ajustes."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", function () { pm.response.to.have.status(200); });",
+                  "if (pm.response.code === 200) {",
+                  "const data = pm.response.json();",
+                  "const row = data.items.find(x => x.offer_id === pm.environment.get(\"offer_id\"));",
+                  "if (!row) throw new Error(\"Saldo da oferta não encontrado\");",
+                  "pm.environment.set(\"inventory_id\", String(row.id));",
+                  "pm.environment.set(\"inventory_version\", String(row.version));",
+                  "pm.test(\"Reserva respeitada\", () => pm.expect(row.effective_sellable_quantity).to.eql(Math.max(0, row.external_sellable_quantity - row.rotalog_reserved_not_reflected_quantity - row.safety_stock_quantity)));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "06.11 — Atualizar versão da capacidade",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Organization-Id",
+                "value": "{{supplier_organization_id}}"
+              }
+            ],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{supplier_access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/capacity-slots?page={{page}}&page_size={{page_size}}&warehouse_id={{warehouse_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "capacity-slots"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "{{page}}"
+                },
+                {
+                  "key": "page_size",
+                  "value": "{{page_size}}"
+                },
+                {
+                  "key": "warehouse_id",
+                  "value": "{{warehouse_id}}"
+                }
+              ]
+            },
+            "description": "Dados exclusivamente sintéticos. Confira os pré-requisitos nas instruções e execute as pastas em ordem."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", function () { pm.response.to.have.status(200); });",
+                  "if (pm.response.code === 200) {",
+                  "const data = pm.response.json();",
+                  "const row = data.items.find(x => x.id === pm.environment.get(\"slot_id\"));",
+                  "if (row) pm.environment.set(\"slot_version\", String(row.version));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "07 — Comprador: sessões, refresh e logout",
+      "description": "",
+      "item": [
+        {
+          "name": "07.01 — Listar sessões do comprador",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Organization-Id",
+                "value": "{{buyer_organization_id}}"
+              }
+            ],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{buyer_access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/me/sessions",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "me",
+                "sessions"
+              ]
+            },
+            "description": "Dados exclusivamente sintéticos. Confira os pré-requisitos nas instruções e execute as pastas em ordem."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", function () { pm.response.to.have.status(200); });",
+                  "if (pm.response.code === 200) {",
+                  "const data = pm.response.json();",
+                  "",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "07.02 — Rotacionar refresh nativo",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "auth": {
+              "type": "noauth"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/refresh",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "refresh"
+              ]
+            },
+            "description": "NÃO reenvie refresh antigo: reutilização revoga a família. O script salva o novo token. Limpe cookies rotalog_refresh do Postman antes de usar modo nativo.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refresh_token\": \"{{buyer_refresh_token}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", function () { pm.response.to.have.status(200); });",
+                  "if (pm.response.code === 200) {",
+                  "const data = pm.response.json();",
+                  "pm.environment.set(\"buyer_access_token\", String(data.access_token));",
+                  "pm.environment.set(\"buyer_refresh_token\", String(data.refresh_token));",
+                  "pm.environment.set(\"buyer_user_id\", String(data.user.id));",
+                  "pm.environment.set(\"buyer_organization_id\", String(data.user.organization_id));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "07.03 — Perfil com access token renovado",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Organization-Id",
+                "value": "{{buyer_organization_id}}"
+              }
+            ],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{buyer_access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/me",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "me"
+              ]
+            },
+            "description": "Dados exclusivamente sintéticos. Confira os pré-requisitos nas instruções e execute as pastas em ordem."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", function () { pm.response.to.have.status(200); });",
+                  "if (pm.response.code === 200) {",
+                  "const data = pm.response.json();",
+                  "",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "07.04 — Logout da sessão atual",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Organization-Id",
+                "value": "{{buyer_organization_id}}"
+              }
+            ],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{buyer_access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/logout",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "logout"
+              ]
+            },
+            "description": "Revoga imediatamente a sessão atual. Para continuar usando comprador, execute novamente o login 05.02."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 204\", function () { pm.response.to.have.status(204); });",
+                  "if (pm.response.code === 204) {",
+                  "pm.environment.set(\"buyer_access_token\", \"\"); pm.environment.set(\"buyer_refresh_token\", \"\");",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "08 — OPCIONAL: compra alternativa e cancelamento",
+      "description": "Executada somente quando run_optional_actions=true. Execute após 00–07 e antes de pausar a oferta.",
+      "item": [
+        {
+          "name": "08.01 — Relogar comprador",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/x-www-form-urlencoded"
+              }
+            ],
+            "auth": {
+              "type": "noauth"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/login?client_type=native",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "login"
+              ],
+              "query": [
+                {
+                  "key": "client_type",
+                  "value": "native"
+                }
+              ]
+            },
+            "description": "Login OAuth2 por formulário. client_type=native devolve refresh opaco no JSON. Não misture este modo com cookies de navegador.",
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "username",
+                  "value": "{{buyer_email}}",
+                  "type": "text"
+                },
+                {
+                  "key": "password",
+                  "value": "{{buyer_password}}",
+                  "type": "text"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", function () { pm.response.to.have.status(200); });",
+                  "if (pm.response.code === 200) {",
+                  "const data = pm.response.json();",
+                  "pm.environment.set(\"buyer_access_token\", String(data.access_token));",
+                  "pm.environment.set(\"buyer_refresh_token\", String(data.refresh_token));",
+                  "pm.environment.set(\"buyer_user_id\", String(data.user.id));",
+                  "pm.environment.set(\"buyer_organization_id\", String(data.user.organization_id));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "08.02 — Reservar uma unidade em outro checkout",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Organization-Id",
+                "value": "{{buyer_organization_id}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{idem_cancel_checkout}}"
+              }
+            ],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{buyer_access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/checkouts",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "checkouts"
+              ]
+            },
+            "description": "Dados exclusivamente sintéticos. Confira os pré-requisitos nas instruções e execute as pastas em ordem.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"items\": [\n    {\n      \"offer_id\": \"{{offer_id}}\",\n      \"quantity\": 1\n    }\n  ],\n  \"capacity_slot_id\": \"{{slot_id}}\",\n  \"accepts_partial\": false\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 201\", function () { pm.response.to.have.status(201); });",
+                  "if (pm.response.code === 201) {",
+                  "const data = pm.response.json();",
+                  "pm.environment.set(\"cancel_checkout_id\", String(data.id));",
+                  "pm.environment.set(\"cancel_checkout_version\", String(data.version));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "08.03 — Pagar compra alternativa (simulação)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Organization-Id",
+                "value": "{{buyer_organization_id}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{idem_cancel_payment}}"
+              }
+            ],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{buyer_access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/checkouts/{{cancel_checkout_id}}/confirm-payment",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "checkouts",
+                "{{cancel_checkout_id}}",
+                "confirm-payment"
+              ]
+            },
+            "description": "Dados exclusivamente sintéticos. Confira os pré-requisitos nas instruções e execute as pastas em ordem.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"expected_version\": {{cancel_checkout_version}}\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", function () { pm.response.to.have.status(200); });",
+                  "if (pm.response.code === 200) {",
+                  "const data = pm.response.json();",
+                  "pm.environment.set(\"cancel_order_id\", String(data.supplier_order_ids[0]));",
+                  "pm.environment.set(\"cancel_purchase_id\", String(data.purchase_id));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "08.04 — Consultar versão do pedido cancelável",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Organization-Id",
+                "value": "{{buyer_organization_id}}"
+              }
+            ],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{buyer_access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/supplier-orders/{{cancel_order_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "supplier-orders",
+                "{{cancel_order_id}}"
+              ]
+            },
+            "description": "Dados exclusivamente sintéticos. Confira os pré-requisitos nas instruções e execute as pastas em ordem."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", function () { pm.response.to.have.status(200); });",
+                  "if (pm.response.code === 200) {",
+                  "const data = pm.response.json();",
+                  "pm.environment.set(\"cancel_order_version\", String(data.version));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "08.05 — Cancelar pedido ainda sem decisão",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Organization-Id",
+                "value": "{{buyer_organization_id}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{buyer_access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/supplier-orders/{{cancel_order_id}}/cancel",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "supplier-orders",
+                "{{cancel_order_id}}",
+                "cancel"
+              ]
+            },
+            "description": "Usa OUTRO pedido; não tenta cancelar o pedido já preparado. Libera reservas/capacidade e simula reembolso.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"expected_version\": {{cancel_order_version}},\n  \"reason\": \"Cancelamento sintético solicitado pelo comprador no teste\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", function () { pm.response.to.have.status(200); });",
+                  "if (pm.response.code === 200) {",
+                  "const data = pm.response.json();",
+                  "pm.environment.set(\"cancel_order_version\", String(data.version));",
+                  "pm.test(\"Cancelado\", () => pm.expect(data.state).to.eql(\"CANCELLED\"));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "08.06 — Conferir reembolso simulado",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Organization-Id",
+                "value": "{{buyer_organization_id}}"
+              }
+            ],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{buyer_access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/supplier-orders/{{cancel_order_id}}/financial-summary",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "supplier-orders",
+                "{{cancel_order_id}}",
+                "financial-summary"
+              ]
+            },
+            "description": "Dados exclusivamente sintéticos. Confira os pré-requisitos nas instruções e execute as pastas em ordem."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", function () { pm.response.to.have.status(200); });",
+                  "if (pm.response.code === 200) {",
+                  "const data = pm.response.json();",
+                  "",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "08.07 — Conferir liberação de estoque",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Organization-Id",
+                "value": "{{supplier_organization_id}}"
+              }
+            ],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{supplier_access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/inventory?page={{page}}&page_size={{page_size}}&offer_id={{offer_id}}&warehouse_id={{warehouse_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "inventory"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "{{page}}"
+                },
+                {
+                  "key": "page_size",
+                  "value": "{{page_size}}"
+                },
+                {
+                  "key": "offer_id",
+                  "value": "{{offer_id}}"
+                },
+                {
+                  "key": "warehouse_id",
+                  "value": "{{warehouse_id}}"
+                }
+              ]
+            },
+            "description": "Consulta privada. A versão pode mudar após reservas, liberações e ajustes."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", function () { pm.response.to.have.status(200); });",
+                  "if (pm.response.code === 200) {",
+                  "const data = pm.response.json();",
+                  "const row = data.items.find(x => x.offer_id === pm.environment.get(\"offer_id\"));",
+                  "if (!row) throw new Error(\"Saldo da oferta não encontrado\");",
+                  "pm.environment.set(\"inventory_id\", String(row.id));",
+                  "pm.environment.set(\"inventory_version\", String(row.version));",
+                  "pm.test(\"Reserva respeitada\", () => pm.expect(row.effective_sellable_quantity).to.eql(Math.max(0, row.external_sellable_quantity - row.rotalog_reserved_not_reflected_quantity - row.safety_stock_quantity)));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "response": []
+        }
+      ],
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "if (pm.environment.get(\"run_optional_actions\") !== \"true\") {",
+              " pm.execution.skipRequest();",
+              "}"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "09 — OPCIONAL: preço, capacidade e pausa",
+      "description": "Altera dados e impede novas compras da oferta; por isso fica após o fluxo principal.",
+      "item": [
+        {
+          "name": "09.01 — Versionar preço para 39,90",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Organization-Id",
+                "value": "{{supplier_organization_id}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{supplier_access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/offers/{{offer_id}}/price-changes",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "offers",
+                "{{offer_id}}",
+                "price-changes"
+              ]
+            },
+            "description": "Não altera o snapshot do pedido existente.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"expected_version\": {{offer_version}},\n  \"unit_price\": \"39.90\",\n  \"currency\": \"BRL\",\n  \"minimum_order_quantity\": 1\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", function () { pm.response.to.have.status(200); });",
+                  "if (pm.response.code === 200) {",
+                  "const data = pm.response.json();",
+                  "pm.environment.set(\"offer_version\", String(data.version));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "09.02 — Consultar versão atual da capacidade",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Organization-Id",
+                "value": "{{supplier_organization_id}}"
+              }
+            ],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{supplier_access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/capacity-slots?page={{page}}&page_size={{page_size}}&warehouse_id={{warehouse_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "capacity-slots"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "{{page}}"
+                },
+                {
+                  "key": "page_size",
+                  "value": "{{page_size}}"
+                },
+                {
+                  "key": "warehouse_id",
+                  "value": "{{warehouse_id}}"
+                }
+              ]
+            },
+            "description": "Dados exclusivamente sintéticos. Confira os pré-requisitos nas instruções e execute as pastas em ordem."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", function () { pm.response.to.have.status(200); });",
+                  "if (pm.response.code === 200) {",
+                  "const data = pm.response.json();",
+                  "const row = data.items.find(x => x.id === pm.environment.get(\"slot_id\"));",
+                  "if (row) pm.environment.set(\"slot_version\", String(row.version));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "09.03 — Ajustar capacidade manual",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Organization-Id",
+                "value": "{{supplier_organization_id}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{supplier_access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/capacity-slots/{{slot_id}}/adjustments",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "capacity-slots",
+                "{{slot_id}}",
+                "adjustments"
+              ]
+            },
+            "description": "Dados exclusivamente sintéticos. Confira os pré-requisitos nas instruções e execute as pastas em ordem.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"expected_version\": {{slot_version}},\n  \"total_quantity\": 150,\n  \"reason\": \"Aumento sintético de capacidade manual para teste\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", function () { pm.response.to.have.status(200); });",
+                  "if (pm.response.code === 200) {",
+                  "const data = pm.response.json();",
+                  "pm.environment.set(\"slot_version\", String(data.version));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "09.04 — Pausar oferta para novos checkouts",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Organization-Id",
+                "value": "{{supplier_organization_id}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{supplier_access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/offers/{{offer_id}}/pause",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "offers",
+                "{{offer_id}}",
+                "pause"
+              ]
+            },
+            "description": "Efeito persistente: oferta deixa de aparecer no catálogo; pedidos existentes permanecem. Não há rota de retomada nesta versão.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"expected_version\": {{offer_version}}\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", function () { pm.response.to.have.status(200); });",
+                  "if (pm.response.code === 200) {",
+                  "const data = pm.response.json();",
+                  "pm.environment.set(\"offer_version\", String(data.version));",
+                  "pm.test(\"Oferta pausada\", () => pm.expect(data.is_active).to.eql(false));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "response": []
+        }
+      ],
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "if (pm.environment.get(\"run_optional_actions\") !== \"true\") {",
+              " pm.execution.skipRequest();",
+              "}"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "10 — OPCIONAL: revogar sessões e trocar senha",
+      "description": "Ações sensíveis. Exigem run_optional_actions=true. Variáveis locais passam a conter a senha nova; não exporte nem compartilhe.",
+      "item": [
+        {
+          "name": "10.01 — Login principal do comprador",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/x-www-form-urlencoded"
+              }
+            ],
+            "auth": {
+              "type": "noauth"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/login?client_type=native",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "login"
+              ],
+              "query": [
+                {
+                  "key": "client_type",
+                  "value": "native"
+                }
+              ]
+            },
+            "description": "Login OAuth2 por formulário. client_type=native devolve refresh opaco no JSON. Não misture este modo com cookies de navegador.",
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "username",
+                  "value": "{{buyer_email}}",
+                  "type": "text"
+                },
+                {
+                  "key": "password",
+                  "value": "{{buyer_password}}",
+                  "type": "text"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", function () { pm.response.to.have.status(200); });",
+                  "if (pm.response.code === 200) {",
+                  "const data = pm.response.json();",
+                  "pm.environment.set(\"buyer_access_token\", String(data.access_token));",
+                  "pm.environment.set(\"buyer_refresh_token\", String(data.refresh_token));",
+                  "pm.environment.set(\"buyer_user_id\", String(data.user.id));",
+                  "pm.environment.set(\"buyer_organization_id\", String(data.user.organization_id));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "10.02 — Abrir sessão auxiliar do mesmo comprador",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/x-www-form-urlencoded"
+              }
+            ],
+            "auth": {
+              "type": "noauth"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/login?client_type=native",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "login"
+              ],
+              "query": [
+                {
+                  "key": "client_type",
+                  "value": "native"
+                }
+              ]
+            },
+            "description": "Login OAuth2 por formulário. client_type=native devolve refresh opaco no JSON. Não misture este modo com cookies de navegador.",
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "username",
+                  "value": "{{buyer_email}}",
+                  "type": "text"
+                },
+                {
+                  "key": "password",
+                  "value": "{{buyer_password}}",
+                  "type": "text"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", function () { pm.response.to.have.status(200); });",
+                  "if (pm.response.code === 200) {",
+                  "const data = pm.response.json();",
+                  "pm.environment.set(\"aux_access_token\", String(data.access_token));",
+                  "pm.environment.set(\"aux_refresh_token\", String(data.refresh_token));",
+                  "pm.environment.set(\"aux_user_id\", String(data.user.id));",
+                  "pm.environment.set(\"aux_organization_id\", String(data.user.organization_id));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "10.03 — Selecionar sessão auxiliar para revogar",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Organization-Id",
+                "value": "{{buyer_organization_id}}"
+              }
+            ],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{buyer_access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/me/sessions",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "me",
+                "sessions"
+              ]
+            },
+            "description": "Dados exclusivamente sintéticos. Confira os pré-requisitos nas instruções e execute as pastas em ordem."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", function () { pm.response.to.have.status(200); });",
+                  "if (pm.response.code === 200) {",
+                  "const data = pm.response.json();",
+                  "const other = data.find(x => !x.current && !x.revoked_at && new Date(x.expires_at).getTime() > Date.now());",
+                  "if (!other) throw new Error(\"Abra a sessão auxiliar em 10.02 primeiro\");",
+                  "pm.environment.set(\"session_to_revoke\", other.id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "10.04 — Revogar dispositivo selecionado",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Organization-Id",
+                "value": "{{buyer_organization_id}}"
+              }
+            ],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{buyer_access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/me/sessions/{{session_to_revoke}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "me",
+                "sessions",
+                "{{session_to_revoke}}"
+              ]
+            },
+            "description": "Dados exclusivamente sintéticos. Confira os pré-requisitos nas instruções e execute as pastas em ordem."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 204\", function () { pm.response.to.have.status(204); });",
+                  "if (pm.response.code === 204) {",
+                  "pm.environment.set(\"aux_access_token\", \"\"); pm.environment.set(\"aux_refresh_token\", \"\");",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "10.05 — Revogar todas as sessões",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Organization-Id",
+                "value": "{{buyer_organization_id}}"
+              }
+            ],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{buyer_access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/logout-all",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "logout-all"
+              ]
+            },
+            "description": "Dados exclusivamente sintéticos. Confira os pré-requisitos nas instruções e execute as pastas em ordem."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 204\", function () { pm.response.to.have.status(204); });",
+                  "if (pm.response.code === 204) {",
+                  "pm.environment.set(\"buyer_access_token\", \"\"); pm.environment.set(\"buyer_refresh_token\", \"\");",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "10.06 — Relogar após logout-all",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/x-www-form-urlencoded"
+              }
+            ],
+            "auth": {
+              "type": "noauth"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/login?client_type=native",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "login"
+              ],
+              "query": [
+                {
+                  "key": "client_type",
+                  "value": "native"
+                }
+              ]
+            },
+            "description": "Login OAuth2 por formulário. client_type=native devolve refresh opaco no JSON. Não misture este modo com cookies de navegador.",
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "username",
+                  "value": "{{buyer_email}}",
+                  "type": "text"
+                },
+                {
+                  "key": "password",
+                  "value": "{{buyer_password}}",
+                  "type": "text"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", function () { pm.response.to.have.status(200); });",
+                  "if (pm.response.code === 200) {",
+                  "const data = pm.response.json();",
+                  "pm.environment.set(\"buyer_access_token\", String(data.access_token));",
+                  "pm.environment.set(\"buyer_refresh_token\", String(data.refresh_token));",
+                  "pm.environment.set(\"buyer_user_id\", String(data.user.id));",
+                  "pm.environment.set(\"buyer_organization_id\", String(data.user.organization_id));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "10.07 — Trocar senha e invalidar sessões",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Organization-Id",
+                "value": "{{buyer_organization_id}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{buyer_access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/password/change",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "password",
+                "change"
+              ]
+            },
+            "description": "Muda SOMENTE a conta sintética criada pelo cenário. O script atualiza buyer_password; todas as sessões, inclusive atual, são invalidadas. Não use conta real/administrativa.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"current_password\": \"{{buyer_password}}\",\n  \"new_password\": \"{{buyer_new_password}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 204\", function () { pm.response.to.have.status(204); });",
+                  "if (pm.response.code === 204) {",
+                  "pm.environment.set(\"buyer_password\", pm.environment.get(\"buyer_new_password\")); pm.environment.set(\"buyer_access_token\", \"\"); pm.environment.set(\"buyer_refresh_token\", \"\");",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "response": []
+        }
+      ],
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "if (pm.environment.get(\"run_optional_actions\") !== \"true\") {",
+              " pm.execution.skipRequest();",
+              "}"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "11 — OPCIONAL: autenticação de navegador",
+      "description": "run_browser_examples=true; browser_origin deve constar exatamente em ROTALOG_CORS_ORIGINS. HTTP local usa cookie_secure=false; HTTPS online exige cookie_secure=true. Cookie jar deve estar habilitado. Ao terminar, limpe cookies antes de retornar ao fluxo nativo.",
+      "item": [
+        {
+          "name": "11.01 — Login por cookie do navegador",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/x-www-form-urlencoded"
+              },
+              {
+                "key": "Origin",
+                "value": "{{browser_origin}}"
+              }
+            ],
+            "auth": {
+              "type": "noauth"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/login?client_type=browser",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "login"
+              ],
+              "query": [
+                {
+                  "key": "client_type",
+                  "value": "browser"
+                }
+              ]
+            },
+            "description": "Demonstra somente o protocolo HTTP; Postman não reproduz todas as políticas SameSite de um navegador real.",
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "username",
+                  "value": "{{buyer_email}}",
+                  "type": "text"
+                },
+                {
+                  "key": "password",
+                  "value": "{{buyer_password}}",
+                  "type": "text"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", function () { pm.response.to.have.status(200); });",
+                  "if (pm.response.code === 200) {",
+                  "const data = pm.response.json();",
+                  "pm.environment.set(\"browser_access_token\", String(data.access_token));",
+                  "pm.environment.set(\"browser_csrf_token\", String(data.csrf_token));",
+                  "pm.test(\"Refresh fora do JSON\", () => pm.expect(data.refresh_token).to.eql(null));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "11.02 — Refresh com cookie e CSRF",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Origin",
+                "value": "{{browser_origin}}"
+              },
+              {
+                "key": "X-CSRF-Token",
+                "value": "{{browser_csrf_token}}"
+              }
+            ],
+            "auth": {
+              "type": "noauth"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/refresh",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "refresh"
+              ]
+            },
+            "description": "Sem corpo e sem Bearer: usa exclusivamente rotalog_refresh do cookie jar."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", function () { pm.response.to.have.status(200); });",
+                  "if (pm.response.code === 200) {",
+                  "const data = pm.response.json();",
+                  "pm.environment.set(\"browser_access_token\", String(data.access_token));",
+                  "pm.environment.set(\"browser_csrf_token\", String(data.csrf_token));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "11.03 — Logout por cookie e CSRF",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Origin",
+                "value": "{{browser_origin}}"
+              },
+              {
+                "key": "X-CSRF-Token",
+                "value": "{{browser_csrf_token}}"
+              }
+            ],
+            "auth": {
+              "type": "noauth"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/logout",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "logout"
+              ]
+            },
+            "description": "Limpa cookie e revoga sessão."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 204\", function () { pm.response.to.have.status(204); });",
+                  "if (pm.response.code === 204) {",
+                  "pm.environment.set(\"browser_access_token\", \"\"); pm.environment.set(\"browser_csrf_token\", \"\");",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "response": []
+        }
+      ],
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "if (pm.environment.get(\"run_browser_examples\") !== \"true\") {",
+              " pm.execution.skipRequest();",
+              "}"
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

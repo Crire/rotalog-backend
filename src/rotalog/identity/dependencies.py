@@ -1,8 +1,9 @@
 """Dependências FastAPI do módulo de identidade."""
 
 from typing import Annotated
+from uuid import UUID
 
-from fastapi import Depends, Request
+from fastapi import Depends, Header, Request
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -25,8 +26,9 @@ def current_user(
     token: Annotated[str, Depends(oauth2_scheme)],
     factory: Annotated[sessionmaker[Session], Depends(application_sessions)],
     settings: Annotated[Settings, Depends(application_settings)],
+    organization_id: Annotated[UUID | None, Header(alias="X-Organization-Id")] = None,
 ) -> UserResponse:
-    return authenticate(token, factory, settings)
+    return authenticate(token, factory, settings, organization_id)
 
 
 CurrentUser = Annotated[UserResponse, Depends(current_user)]
