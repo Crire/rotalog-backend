@@ -4,7 +4,15 @@ from datetime import datetime
 from decimal import Decimal
 from uuid import UUID
 
-from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Integer, Numeric, String
+from sqlalchemy import (
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    Numeric,
+    String,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from rotalog.core.database import Base, TimestampMixin, UuidPrimaryKeyMixin
@@ -56,6 +64,7 @@ class DriverLocationPoint(UuidPrimaryKeyMixin, TimestampMixin, Base):
         CheckConstraint("latitude BETWEEN -90 AND 90", name="latitude_valid"),
         CheckConstraint("longitude BETWEEN -180 AND 180", name="longitude_valid"),
         CheckConstraint("accuracy_meters >= 0", name="accuracy_non_negative"),
+        Index("ix_driver_location_point_route_recorded_at", "route_id", "recorded_at"),
     )
 
     route_id: Mapped[UUID] = mapped_column(
