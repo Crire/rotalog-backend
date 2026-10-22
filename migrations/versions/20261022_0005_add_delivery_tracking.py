@@ -1,7 +1,7 @@
 """Cria rotas de entrega e pontos de localização sintéticos."""
 
-import sqlalchemy as sa
 from alembic import op
+import sqlalchemy as sa
 
 
 revision = "20261022_0005"

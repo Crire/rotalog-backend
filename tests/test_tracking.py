@@ -99,7 +99,7 @@ def test_driver_location_flow(demo_client):
         "id"
     ] == route["id"]
 
-    started = _ok(
+    _ok(
         demo_client.post(
             f"/api/v1/driver/delivery-routes/{route['id']}/start",
             headers=driver,

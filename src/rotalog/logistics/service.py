@@ -7,7 +7,7 @@ from geoalchemy2 import WKTElement
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
-from rotalog.core.contracts import fail, check_version
+from rotalog.core.contracts import check_version, fail
 from rotalog.core.database import transactional_session
 from rotalog.identity.models import Role, User
 from rotalog.identity.schemas import UserResponse

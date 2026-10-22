@@ -4,6 +4,8 @@ from datetime import datetime
 from decimal import Decimal
 from uuid import UUID
 
+from geoalchemy2 import Geography
+from geoalchemy2.elements import WKBElement
 from sqlalchemy import (
     CheckConstraint,
     DateTime,
@@ -13,8 +15,6 @@ from sqlalchemy import (
     Numeric,
     String,
 )
-from geoalchemy2 import Geography
-from geoalchemy2.elements import WKBElement
 from sqlalchemy.orm import Mapped, mapped_column
 
 from rotalog.core.database import Base, TimestampMixin, UuidPrimaryKeyMixin
