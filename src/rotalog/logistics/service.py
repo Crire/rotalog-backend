@@ -3,6 +3,7 @@
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
+from geoalchemy2 import WKTElement
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -19,6 +20,12 @@ from rotalog.ordering.models import SupplierOrder
 LOCATION_STALE_AFTER = timedelta(minutes=2)
 MAX_LOCATION_AGE = timedelta(days=1)
 MAX_CLOCK_SKEW = timedelta(minutes=5)
+
+
+def _position(longitude: object, latitude: object) -> WKTElement:
+    """Cria um ponto geográfico WGS 84 sem alterar os campos legados."""
+
+    return WKTElement(f"POINT({longitude} {latitude})", srid=4326)
 
 
 def _route_response(item: DeliveryRoute) -> dict:
@@ -190,6 +197,7 @@ def record_location(
             demo_run_id=actor.demo_run_id,
             latitude=data.latitude,
             longitude=data.longitude,
+            position=_position(data.longitude, data.latitude),
             accuracy_meters=data.accuracy_meters,
             recorded_at=data.recorded_at,
         )
@@ -200,6 +208,7 @@ def record_location(
         ):
             route.last_latitude = point.latitude
             route.last_longitude = point.longitude
+            route.last_position = _position(point.longitude, point.latitude)
             route.last_accuracy_meters = point.accuracy_meters
             route.last_location_at = point.recorded_at
         route.version += 1

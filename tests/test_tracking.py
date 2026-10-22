@@ -3,10 +3,11 @@
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import func, select, text
 
 from rotalog.core.database import transactional_session
 from rotalog.inventory.models import CapacitySlot, Warehouse
+from rotalog.logistics.models import DeliveryRoute, DriverLocationPoint
 from rotalog.ordering.models import CheckoutSession, Purchase, SupplierOrder
 
 
@@ -137,6 +138,44 @@ def test_driver_location_flow(demo_client):
     assert latest["id"] == saved["id"]
     assert latest["latitude"] == "-3.119000"
     assert latest["is_stale"] is False
+
+    factory = demo_client.app.state.session_factory
+    with transactional_session(factory) as session:
+        point_position = session.execute(
+            select(
+                func.ST_AsText(DriverLocationPoint.position),
+                func.ST_SRID(DriverLocationPoint.position),
+            ).where(DriverLocationPoint.id == UUID(saved["id"]))
+        ).one()
+        route_position = session.execute(
+            select(
+                func.ST_AsText(DeliveryRoute.last_position),
+                func.ST_SRID(DeliveryRoute.last_position),
+            ).where(DeliveryRoute.id == UUID(route["id"]))
+        ).one()
+        spatial_indexes = set(
+            session.scalars(
+                text(
+                    """
+                    SELECT index_class.relname
+                    FROM pg_index
+                    JOIN pg_class index_class ON index_class.oid = pg_index.indexrelid
+                    JOIN pg_am ON pg_am.oid = index_class.relam
+                    WHERE pg_am.amname = 'gist'
+                      AND index_class.relname IN (
+                        'ix_driver_location_point_position',
+                        'ix_delivery_route_last_position'
+                      )
+                    """
+                )
+            )
+        )
+    assert point_position == ("POINT(-60.0217 -3.119)", 4326)
+    assert route_position == ("POINT(-60.0217 -3.119)", 4326)
+    assert spatial_indexes == {
+        "ix_driver_location_point_position",
+        "ix_delivery_route_last_position",
+    }
 
     route_after_point = _ok(
         demo_client.get("/api/v1/driver/delivery-routes", headers=driver)

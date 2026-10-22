@@ -13,6 +13,8 @@ from sqlalchemy import (
     Numeric,
     String,
 )
+from geoalchemy2 import Geography
+from geoalchemy2.elements import WKBElement
 from sqlalchemy.orm import Mapped, mapped_column
 
 from rotalog.core.database import Base, TimestampMixin, UuidPrimaryKeyMixin
@@ -35,6 +37,11 @@ class DeliveryRoute(UuidPrimaryKeyMixin, TimestampMixin, Base):
             "last_longitude IS NULL OR last_longitude BETWEEN -180 AND 180",
             name="last_longitude_valid",
         ),
+        Index(
+            "ix_delivery_route_last_position",
+            "last_position",
+            postgresql_using="gist",
+        ),
     )
 
     supplier_order_id: Mapped[UUID] = mapped_column(
@@ -52,6 +59,9 @@ class DeliveryRoute(UuidPrimaryKeyMixin, TimestampMixin, Base):
     version: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
     last_latitude: Mapped[Decimal | None] = mapped_column(Numeric(9, 6))
     last_longitude: Mapped[Decimal | None] = mapped_column(Numeric(9, 6))
+    last_position: Mapped[WKBElement | None] = mapped_column(
+        Geography(geometry_type="POINT", srid=4326, spatial_index=False)
+    )
     last_accuracy_meters: Mapped[Decimal | None] = mapped_column(Numeric(8, 2))
     last_location_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
@@ -65,6 +75,11 @@ class DriverLocationPoint(UuidPrimaryKeyMixin, TimestampMixin, Base):
         CheckConstraint("longitude BETWEEN -180 AND 180", name="longitude_valid"),
         CheckConstraint("accuracy_meters >= 0", name="accuracy_non_negative"),
         Index("ix_driver_location_point_route_recorded_at", "route_id", "recorded_at"),
+        Index(
+            "ix_driver_location_point_position",
+            "position",
+            postgresql_using="gist",
+        ),
     )
 
     route_id: Mapped[UUID] = mapped_column(
@@ -78,5 +93,9 @@ class DriverLocationPoint(UuidPrimaryKeyMixin, TimestampMixin, Base):
     )
     latitude: Mapped[Decimal] = mapped_column(Numeric(9, 6))
     longitude: Mapped[Decimal] = mapped_column(Numeric(9, 6))
+    position: Mapped[WKBElement] = mapped_column(
+        Geography(geometry_type="POINT", srid=4326, spatial_index=False),
+        nullable=False,
+    )
     accuracy_meters: Mapped[Decimal] = mapped_column(Numeric(8, 2))
     recorded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
