@@ -7,13 +7,15 @@ Não cadastre dados pessoais reais nem use esta API para movimentar dinheiro rea
 
 Funciona: cadastro sintético, login, refresh/revogação de sessão, catálogo canônico,
 depósitos, ofertas, estoque/capacidade manual, reserva de checkout, compra com
-pagamento simulado, consulta/aceite/recusa de pedidos, separação e prontidão.
+pagamento simulado, consulta/aceite/recusa de pedidos, separação, prontidão e
+rastreamento sintético de rota por GPS.
 O backend continua sendo a única porta de acesso aos dados para web/mobile.
 
-Não funciona ainda: despacho/entrega, rastreamento, motorista, prova, disputa,
-auditoria global, relógio controlado/reset de cenários, MFA/recuperação de senha,
+Não funciona ainda: despacho/entrega completa, prova, disputa, auditoria global,
+relógio controlado/reset de cenários, MFA/recuperação de senha,
 convites organizacionais e integrações reais. **Frontend e mobile devem usar mocks
-nas telas/ações do entregador**, sem enviar estados de entrega fictícios ao backend.
+somente para ações de entrega, prova e retorno ainda não implementadas**; já podem
+enviar e consultar pontos de rastreamento sintéticos.
 
 ## Stack e módulos
 
@@ -33,7 +35,7 @@ src/rotalog/
   finance/          # Payment e PaymentAllocation exclusivamente simulados
   operations/       # idempotência persistente; auditoria global pendente
   demo/             # seed idempotente e worker de expiração
-  logistics/        # reservado; entregador fora do escopo
+  logistics/        # rota atribuída, localização conhecida e histórico GPS sintético
   disputes/         # reservado
   reviews/          # reservado
   integrations/     # reservado; sem chamadas a ERP/PSP/mapas reais
@@ -69,7 +71,7 @@ uv run --locked python -m rotalog.demo.worker
 
 O worker libera reservas de checkouts vencidos e expira pedidos ainda sem decisão,
 fazendo o reembolso **simulado**. O relógio é real nesta versão; não há integração
-com motorista ou serviço financeiro. A confirmação de pagamento também verifica
+com serviço financeiro ou matriz viária. A confirmação de pagamento também verifica
 expiração sob lock, sem depender do worker para impedir captura de reserva vencida.
 
 Abra [Swagger](http://127.0.0.1:8000/docs),
@@ -107,7 +109,7 @@ Todas usam a senha fornecida por você ao seed:
 | `ROTALOG_ADMIN` | `admin@demo.rotalog.invalid` |
 | `BUYER_ADMIN` | `comprador@demo.rotalog.invalid` |
 | `SUPPLIER_OPERATOR` | `fornecedor@demo.rotalog.invalid` |
-| `DRIVER` (sem fluxo operacional) | `motorista@demo.rotalog.invalid` |
+| `DRIVER` | `motorista@demo.rotalog.invalid` |
 
 Swagger **Authorize** usa `POST /api/v1/auth/login` com formulário `username`
 (email) e `password`. O modo padrão, `client_type=native`, devolve access/refresh
@@ -154,7 +156,10 @@ Todos os caminhos abaixo têm prefixo `/api/v1` e constam no OpenAPI.
    `POST /supplier-orders/{id}/acceptance` decide todas as linhas com versão e chave.
 10. **Distribuidora:** `start-separation` → criação de `fulfillments` →
     `POST /fulfillments/{id}/separation-results` → `mark-ready`.
-    O fluxo termina em **READY_TO_DISPATCH**. Entrega não é simulada no banco.
+    Com um pedido pronto, fornecedor ou operação pode criar uma rota e atribuir o
+    motorista. O motorista inicia a rota, envia pontos GPS sintéticos e a operação
+    ou comprador consulta a última localização. A conclusão da rota encerra o envio;
+    entrega, prova e retorno continuam fora do escopo.
 
 Consulta de compras: `GET /purchases`, `/purchases/{id}` e
 `/purchases/{id}/payments`. Resumo financeiro:
@@ -237,8 +242,8 @@ ou siga o [guia do Swagger](docs/postman/GUIA_SWAGGER_FASTAPI.txt). Os templates
 Veja [a matriz V5](docs/arquitetura/compatibilidade-v5-demo.md). Esta atualização
 substitui as rotas V4.1 `/auth/me`, `/ofertas`, criação livre em `/products` e
 `PATCH /offers/{id}/inventory` pelos comandos canônicos. Web/mobile devem atualizar
-seus tipos e chamadas pelo `/openapi.json`; mocks devem ficar limitados ao lado do
-entregador e às funcionalidades explicitamente não implementadas.
+seus tipos e chamadas pelo `/openapi.json`; mocks devem ficar limitados às
+funcionalidades explicitamente não implementadas.
 
 O [registro de camadas globais](docs/arquitetura/2026-09-09-proposta-camadas-globais.md)
 é histórico, não a arquitetura atual. Não existem entidades `Order`/`OrderLine`;
