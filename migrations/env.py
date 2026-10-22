@@ -61,13 +61,13 @@ def _extension_relation_names(connection: Connection) -> set[str]:
 
 def _run_migrations(connection: Connection) -> None:
     extension_relations = _extension_relation_names(connection)
-    # A consulta de metadados abre uma transação implícita no SQLAlchemy. Ela
-    # precisa terminar antes de o Alembic iniciar a própria transação de DDL.
-    connection.commit()
     configured_schema = config.get_main_option("version_table_schema")
     version_table_schema = configured_schema or connection.scalar(
         text("SELECT current_schema()")
     )
+    # As consultas de metadados abrem uma transação implícita no SQLAlchemy.
+    # Ela precisa terminar antes de o Alembic iniciar a própria transação de DDL.
+    connection.commit()
     version_table = config.get_main_option("version_table") or "alembic_version"
 
     def include_object(
