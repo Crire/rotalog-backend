@@ -8,14 +8,21 @@ Não cadastre dados pessoais reais nem use esta API para movimentar dinheiro rea
 Funciona: cadastro sintético, login, refresh/revogação de sessão, catálogo canônico,
 depósitos, ofertas, estoque/capacidade manual, reserva de checkout, compra com
 pagamento simulado, consulta/aceite/recusa de pedidos, separação, prontidão e
-rastreamento sintético de rota por GPS.
+rastreamento sintético de rota por GPS. O fluxo canônico da demo acrescenta
+planejamento manual aprovado/publicado, coleta com despacho/custódia, recebimento
+integral comprovado e consulta do progresso/timeline pelo pedido.
 O backend continua sendo a única porta de acesso aos dados para web/mobile.
 
-Não funciona ainda: despacho/entrega completa, prova, disputa, auditoria global,
+Imagens do catálogo: [contratos, upload privado, worker e galeria](docs/imagens-produtos-demo-v5.md).
+São imagens do produto canônico, distintas das provas de entrega. O processamento
+da demo é simplificado e aceita somente arquivos sintéticos; não é antivírus do piloto.
+
+Não funciona ainda: entregas com divergências/retornos, disputa, auditoria global,
 relógio controlado/reset de cenários, MFA/recuperação de senha,
-convites organizacionais e integrações reais. **Frontend e mobile devem usar mocks
-somente para ações de entrega, prova e retorno ainda não implementadas**; já podem
-enviar e consultar pontos de rastreamento sintéticos.
+convites organizacionais e integrações reais. Não confundir encerramento da rota
+legada de GPS com confirmação de entrega. Web/mobile podem usar os novos contratos
+para o recebimento integral; fluxos ainda ausentes devem ser claramente identificados,
+sem misturar mocks com pedidos reais da API. Veja o [guia de cadastro e entrega](docs/demo-produtos-entrega.md).
 
 ## Stack e módulos
 
@@ -35,7 +42,7 @@ src/rotalog/
   finance/          # Payment e PaymentAllocation exclusivamente simulados
   operations/       # idempotência persistente; auditoria global pendente
   demo/             # seed idempotente e worker de expiração
-  logistics/        # rota atribuída, localização conhecida e histórico GPS sintético
+  logistics/        # rota manual, custódia, prova privada e GPS legado sintético
   disputes/         # reservado
   reviews/          # reservado
   integrations/     # reservado; sem chamadas a ERP/PSP/mapas reais

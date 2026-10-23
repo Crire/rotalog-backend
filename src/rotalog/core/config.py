@@ -2,8 +2,9 @@
 
 from enum import StrEnum
 from functools import lru_cache
+from pathlib import Path
 
-from pydantic import SecretStr, field_validator, model_validator
+from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import ArgumentError
@@ -41,6 +42,13 @@ class Settings(BaseSettings):
     jwt_secret: SecretStr | None = None
     cors_origins: list[str] = []
     cookie_secure: bool = False
+    product_images_root: Path = Path(".local-runtime/product-images")
+    product_images_per_product: int = Field(default=5, ge=1, le=20)
+    product_image_max_bytes: int = Field(
+        default=8 * 1024 * 1024, ge=1, le=8 * 1024 * 1024
+    )
+    product_image_max_pixels: int = Field(default=16_000_000, ge=1, le=16_000_000)
+    product_image_upload_ttl_seconds: int = Field(default=900, ge=60, le=3600)
 
     @field_validator("jwt_secret", mode="before")
     @classmethod

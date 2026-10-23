@@ -25,6 +25,13 @@ services:
       ROTALOG_DEMO_PASSWORD: ${ROTALOG_DEMO_PASSWORD:?Defina uma senha sintética forte}
       ROTALOG_CORS_ORIGINS: ${ROTALOG_CORS_ORIGINS:-[]}
       ROTALOG_COOKIE_SECURE: ${ROTALOG_COOKIE_SECURE:-false}
+      ROTALOG_PRODUCT_IMAGES_ROOT: /var/lib/rotalog/product-images
+      ROTALOG_PRODUCT_IMAGES_PER_PRODUCT: ${ROTALOG_PRODUCT_IMAGES_PER_PRODUCT:-5}
+      ROTALOG_PRODUCT_IMAGE_MAX_BYTES: ${ROTALOG_PRODUCT_IMAGE_MAX_BYTES:-8388608}
+      ROTALOG_PRODUCT_IMAGE_MAX_PIXELS: ${ROTALOG_PRODUCT_IMAGE_MAX_PIXELS:-16000000}
+      ROTALOG_PRODUCT_IMAGE_UPLOAD_TTL_SECONDS: ${ROTALOG_PRODUCT_IMAGE_UPLOAD_TTL_SECONDS:-900}
+    volumes:
+      - product_images:/var/lib/rotalog/product-images
     command: [sh, -c, "alembic upgrade head && python -m rotalog.demo.seed && exec uvicorn rotalog.api.main:app --host 0.0.0.0 --port 8000 --proxy-headers"]
     ports:
       - "127.0.0.1:8000:8000"
@@ -41,6 +48,8 @@ services:
   worker:
     build: .
     environment: *api_environment
+    volumes:
+      - product_images:/var/lib/rotalog/product-images
     command: [python, -m, rotalog.demo.worker]
     depends_on:
       api:
@@ -48,3 +57,4 @@ services:
     restart: unless-stopped
 volumes:
   postgres_data:
+  product_images:

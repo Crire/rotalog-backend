@@ -47,6 +47,8 @@ markupsafe==3.0.4
     # via mako
 opentelemetry-api==1.45.1
     # via fastapi
+pillow==13.0.0
+    # via rotalog-backend
 psycopg==3.3.6
     # via rotalog-backend
 psycopg-binary==3.3.6 ; implementation_name != 'pypy'

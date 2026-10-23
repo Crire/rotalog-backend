@@ -33,6 +33,11 @@ def test_migrations_run_on_empty_database(alembic_config, database_url):
             "order_item",
             "payment",
             "payment_allocation",
+            "stored_file",
+            "file_event",
+            "file_download_grant",
+            "product_image",
+            "product_image_event",
         } <= set(inspector.get_table_names())
         columns = {column["name"]: column for column in inspector.get_columns("offer")}
         assert isinstance(columns["amount_minor"]["type"], sa.BigInteger)
@@ -45,6 +50,42 @@ def test_migrations_run_on_empty_database(alembic_config, database_url):
     command.downgrade(alembic_config, "base")
     command.upgrade(alembic_config, "head")
     command.check(alembic_config)
+
+
+def test_product_images_upgrade_preserves_previous_catalog(
+    alembic_config, database_url
+):
+    command.upgrade(alembic_config, "20261023_0007")
+    run_id, product_id = uuid4(), uuid4()
+    engine = sa.create_engine(database_url)
+    try:
+        with engine.begin() as connection:
+            connection.execute(
+                sa.text(
+                    "INSERT INTO demo_run(id,name) VALUES (:id,'Snapshot sintético')"
+                ),
+                {"id": run_id},
+            )
+            connection.execute(
+                sa.text(
+                    "INSERT INTO product(id,name,demo_run_id,publication_state) VALUES (:id,'Catálogo preservado',:run,'PUBLISHED')"
+                ),
+                {"id": product_id, "run": run_id},
+            )
+        command.upgrade(alembic_config, "head")
+        command.check(alembic_config)
+        with engine.connect() as connection:
+            assert connection.execute(
+                sa.text("SELECT name,publication_state FROM product WHERE id=:id"),
+                {"id": product_id},
+            ).one() == ("Catálogo preservado", "PUBLISHED")
+            assert connection.scalar(sa.text("SELECT count(*) FROM stored_file")) == 0
+            assert connection.scalar(sa.text("SELECT count(*) FROM product_image")) == 0
+        command.downgrade(alembic_config, "20261023_0007")
+        command.upgrade(alembic_config, "head")
+        command.check(alembic_config)
+    finally:
+        engine.dispose()
 
 
 @pytest.mark.parametrize(
@@ -153,6 +194,94 @@ def test_database_constraints_reject_invalid_values(demo_client):
 def test_downgrade_after_demo_use_is_blocked(demo_client, alembic_config):
     with pytest.raises(RuntimeError, match="Downgrade V5 bloqueado"):
         command.downgrade(alembic_config, "20261018_0003")
+
+
+def test_delivery_upgrade_preserves_legacy_routes_and_reservations(
+    alembic_config, database_url
+):
+    """Uma rota GPS concluída não é migrada para entrega comprovada."""
+    command.upgrade(alembic_config, "20261022_0006")
+    names = (
+        "run",
+        "supplier",
+        "buyer",
+        "driver",
+        "warehouse",
+        "capacity",
+        "checkout",
+        "purchase",
+        "order",
+        "route",
+        "point",
+        "product",
+        "offer",
+        "projection",
+        "reservation",
+    )
+    ids = {name: uuid4() for name in names}
+    statements = [
+        "INSERT INTO demo_run(id,name) VALUES (:run,'snapshot tracking sintético')",
+        "INSERT INTO organization(id,name,demo_run_id) VALUES (:supplier,'Fornecedor anterior',:run),(:buyer,'Comprador anterior',:run)",
+        "INSERT INTO identity_user(id,email,name,password_hash,role,organization_id,demo_run_id) VALUES (:driver,'snapshot@demo.rotalog.invalid','Motorista anterior','hash preservado','DRIVER',:supplier,:run)",
+        "INSERT INTO warehouse(id,supplier_organization_id,demo_run_id,name,address,opening_hours,region) VALUES (:warehouse,:supplier,:run,'Origem','Rua fictícia','Seg–Sex 08–18','MANAUS')",
+        "INSERT INTO capacity_slot(id,warehouse_id,starts_at,ends_at,total_quantity,reserved_quantity) VALUES (:capacity,:warehouse,now(),now()+interval '1 day',100,3)",
+        "INSERT INTO checkout_session(id,buyer_organization_id,supplier_organization_id,warehouse_id,capacity_slot_id,demo_run_id,expires_at) VALUES (:checkout,:buyer,:supplier,:warehouse,:capacity,:run,now()+interval '1 hour')",
+        "INSERT INTO purchase(id,checkout_id,buyer_organization_id,demo_run_id) VALUES (:purchase,:checkout,:buyer,:run)",
+        "INSERT INTO supplier_order(id,purchase_id,buyer_organization_id,supplier_organization_id,warehouse_id,demo_run_id,state,acceptance_deadline) VALUES (:order,:purchase,:buyer,:supplier,:warehouse,:run,'READY_TO_DISPATCH',now()+interval '1 day')",
+        "INSERT INTO delivery_route(id,supplier_order_id,driver_id,demo_run_id,state,last_latitude,last_longitude,last_position) VALUES (:route,:order,:driver,:run,'COMPLETED',-3.1,-60,public.ST_SetSRID(public.ST_MakePoint(-60,-3.1),4326)::public.geography)",
+        "INSERT INTO driver_location_point(id,route_id,driver_id,demo_run_id,latitude,longitude,accuracy_meters,recorded_at,position) VALUES (:point,:route,:driver,:run,-3.1,-60,10,now(),public.ST_SetSRID(public.ST_MakePoint(-60,-3.1),4326)::public.geography)",
+        "INSERT INTO product(id,name,demo_run_id) VALUES (:product,'Arroz anterior',:run)",
+        "INSERT INTO offer(id,product_id,supplier_organization_id,warehouse_id,demo_run_id,amount_minor,minimum_order_quantity) VALUES (:offer,:product,:supplier,:warehouse,:run,2990,1)",
+        "INSERT INTO inventory_projection(id,offer_id,warehouse_id,demo_run_id,external_sellable_quantity,rotalog_reserved_not_reflected_quantity) VALUES (:projection,:offer,:warehouse,:run,20,3)",
+        "INSERT INTO reservation(id,checkout_id,projection_id,capacity_slot_id,quantity,expires_at) VALUES (:reservation,:checkout,:projection,:capacity,3,now()+interval '1 hour')",
+    ]
+    engine = sa.create_engine(database_url)
+    try:
+        with engine.begin() as connection:
+            for sql in statements:
+                connection.execute(sa.text(sql), ids)
+        command.upgrade(alembic_config, "head")
+        command.check(alembic_config)
+        with engine.connect() as connection:
+            assert (
+                connection.scalar(
+                    sa.text("SELECT state FROM delivery_route WHERE id=:route"), ids
+                )
+                == "COMPLETED"
+            )
+            assert (
+                connection.scalar(
+                    sa.text(
+                        "SELECT count(*) FROM driver_location_point WHERE id=:point"
+                    ),
+                    ids,
+                )
+                == 1
+            )
+            assert (
+                connection.scalar(
+                    sa.text(
+                        "SELECT consumed_quantity FROM reservation WHERE id=:reservation"
+                    ),
+                    ids,
+                )
+                == 0
+            )
+            assert (
+                connection.scalar(
+                    sa.text(
+                        "SELECT rotalog_reserved_not_reflected_quantity FROM inventory_projection WHERE id=:projection"
+                    ),
+                    ids,
+                )
+                == 3
+            )
+            assert connection.scalar(sa.text("SELECT count(*) FROM route")) == 0
+            assert (
+                connection.scalar(sa.text("SELECT count(*) FROM delivery_proof")) == 0
+            )
+    finally:
+        engine.dispose()
 
 
 def test_v41_identity_membership_and_stock_are_preserved(alembic_config, database_url):

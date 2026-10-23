@@ -23,6 +23,42 @@ from rotalog.inventory.service import initialize_projection, owned_warehouse
 from rotalog.organizations.models import Organization
 
 
+def image_product(
+    session: Session, product_id: UUID, actor: UserResponse, *, write: bool = False
+) -> Product:
+    """Permissão pública do catálogo para a finalidade PRODUCT_IMAGE."""
+    if write and actor.role != Role.ADMIN:
+        fail(
+            "CAPABILITY_REQUIRED",
+            "Somente a administração gerencia imagens canônicas.",
+            403,
+        )
+    query = select(Product).where(
+        Product.id == product_id, Product.demo_run_id == actor.demo_run_id
+    )
+    if actor.role != Role.ADMIN:
+        query = query.where(Product.publication_state == "PUBLISHED")
+    item = session.scalar(query.with_for_update() if write else query)
+    if item is None:
+        fail("PRODUCT_NOT_FOUND", "Produto não encontrado.", 404)
+    return item
+
+
+def product_response(session: Session, item: Product) -> ProductResponse:
+    from rotalog.catalog.image_service import gallery_metadata
+
+    gallery = gallery_metadata(session, item)
+    images = gallery["images"]
+    return ProductResponse.model_validate(item).model_copy(
+        update={
+            "images": images,
+            "primary_image": next(
+                (image for image in images if image.is_primary), None
+            ),
+        }
+    )
+
+
 def create_product(
     data: ProductCreate, actor: UserResponse, factory: sessionmaker[Session]
 ) -> ProductResponse:
@@ -31,7 +67,7 @@ def create_product(
         item = Product(**data.model_dump(), demo_run_id=actor.demo_run_id)
         session.add(item)
         session.flush()
-        return ProductResponse.model_validate(item)
+        return product_response(session, item)
 
 
 def publish_product(
@@ -69,7 +105,7 @@ def publish_product(
         item.publication_state = "PUBLISHED"
         item.version += 1
         session.flush()
-        return ProductResponse.model_validate(item)
+        return product_response(session, item)
 
 
 def list_products(
@@ -82,21 +118,20 @@ def list_products(
 ):
     with transactional_session(factory) as session:
         authorize(session, actor)
-        query = select(Product).where(
-            Product.demo_run_id == actor.demo_run_id,
-            Product.publication_state == "PUBLISHED",
-        )
+        query = select(Product).where(Product.demo_run_id == actor.demo_run_id)
+        if not product_id or actor.role != Role.ADMIN:
+            query = query.where(Product.publication_state == "PUBLISHED")
         if search:
             query = query.where(Product.name.icontains(search, autoescape=True))
         if product_id:
             item = session.scalar(query.where(Product.id == product_id))
             if item is None:
                 fail("PRODUCT_NOT_FOUND", "Produto não encontrado.", 404)
-            return ProductResponse.model_validate(item)
+            return product_response(session, item)
         total = session.scalar(select(func.count()).select_from(query.subquery()))
         return Page(
             items=[
-                ProductResponse.model_validate(item)
+                product_response(session, item)
                 for item in session.scalars(
                     query.order_by(Product.name, Product.id)
                     .offset((page - 1) * page_size)
@@ -110,6 +145,8 @@ def list_products(
 
 
 def offer_response(session: Session, item: Offer) -> OfferResponse:
+    from rotalog.catalog.image_service import gallery_metadata
+
     product = session.get(Product, item.product_id)
     supplier = session.get(Organization, item.supplier_organization_id)
     warehouse = session.get(Warehouse, item.warehouse_id)
@@ -134,6 +171,14 @@ def offer_response(session: Session, item: Offer) -> OfferResponse:
         version=item.version,
         is_active=item.is_active,
         demo_run_id=item.demo_run_id,
+        product_image=next(
+            (
+                image
+                for image in gallery_metadata(session, product)["images"]
+                if image.is_primary
+            ),
+            None,
+        ),
     )
 
 

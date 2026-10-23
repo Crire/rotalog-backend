@@ -374,6 +374,9 @@ def _fulfillment_response(session: Session, item: Fulfillment) -> dict:
 
 
 def _order_response(session: Session, item: SupplierOrder, actor: UserResponse) -> dict:
+    from rotalog.logistics.delivery_models import DeliveryOutcomeLine, Route, RouteLoad
+    from rotalog.logistics.delivery_service import route_summary
+
     lines = []
     total_minor = 0
     for line in session.scalars(
@@ -390,6 +393,22 @@ def _order_response(session: Session, item: SupplierOrder, actor: UserResponse) 
         allocation = session.scalar(
             select(PaymentAllocation).where(PaymentAllocation.order_item_id == line.id)
         )
+        dispatched = session.scalar(
+            select(
+                func.coalesce(func.sum(FulfillmentLine.dispatched_quantity), 0)
+            ).where(FulfillmentLine.order_item_id == line.id)
+        )
+        outcomes = session.execute(
+            select(
+                func.coalesce(func.sum(DeliveryOutcomeLine.buyer_accepted_quantity), 0),
+                func.coalesce(
+                    func.sum(DeliveryOutcomeLine.delivery_refused_quantity), 0
+                ),
+                func.coalesce(func.sum(DeliveryOutcomeLine.missing_quantity), 0),
+            )
+            .join(FulfillmentLine)
+            .where(FulfillmentLine.order_item_id == line.id)
+        ).one()
         lines.append(
             {
                 "id": str(line.id),
@@ -403,16 +422,18 @@ def _order_response(session: Session, item: SupplierOrder, actor: UserResponse) 
                 "supplier_accepted_quantity": line.supplier_accepted_quantity,
                 "supplier_refused_quantity": line.supplier_refused_quantity,
                 "separated_quantity": separated,
-                "dispatched_quantity": 0,
-                "delivered_quantity": 0,
-                "buyer_accepted_quantity": 0,
-                "delivery_refused_quantity": 0,
-                "missing_quantity": 0,
+                "dispatched_quantity": dispatched,
+                "delivered_quantity": outcomes[0] + outcomes[1],
+                "buyer_accepted_quantity": outcomes[0],
+                "delivery_refused_quantity": outcomes[1],
+                "missing_quantity": outcomes[2],
                 "returning_quantity": 0,
                 "return_reconciled_quantity": 0,
                 "refunded_quantity": allocation.refunded_quantity if allocation else 0,
                 "financially_released_quantity": 0,
-                "financially_pending_quantity": 0,
+                "financially_pending_quantity": outcomes[0]
+                if allocation and allocation.state == "PROTECTED"
+                else 0,
             }
         )
     allowed = []
@@ -431,6 +452,19 @@ def _order_response(session: Session, item: SupplierOrder, actor: UserResponse) 
         allowed.append("cancel")
     return {
         "id": str(item.id),
+        "created_at": item.created_at.isoformat(),
+        "updated_at": item.updated_at.isoformat(),
+        "delivery_routes": [
+            route_summary(session, route)
+            for route in session.scalars(
+                select(Route)
+                .join(RouteLoad)
+                .join(Fulfillment, Fulfillment.id == RouteLoad.fulfillment_id)
+                .where(Fulfillment.supplier_order_id == item.id)
+                .distinct()
+                .order_by(Route.created_at, Route.id)
+            )
+        ],
         "purchase_id": str(item.purchase_id),
         "buyer_organization_id": str(item.buyer_organization_id),
         "supplier_organization_id": str(item.supplier_organization_id),

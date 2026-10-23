@@ -204,7 +204,7 @@ def test_seed_is_idempotent_and_closed_run_is_read_only(demo_client):
     seed_demo(factory, demo_client.app.state.settings, "another-synthetic-password")
     payload = login(demo_client).json()
     with transactional_session(factory) as session:
-        assert session.scalar(select(func.count()).select_from(User)) == 4
+        assert session.scalar(select(func.count()).select_from(User)) == 5
         assert all(
             user.password_hash.startswith("$argon2id$")
             for user in session.scalars(select(User))

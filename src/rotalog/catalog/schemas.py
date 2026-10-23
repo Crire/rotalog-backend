@@ -4,6 +4,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from rotalog.catalog.image_schemas import ProductImageResponse
 from rotalog.core.contracts import Input, Name, PositiveQuantity, Versioned
 from rotalog.core.money import MoneyInput
 
@@ -29,6 +30,8 @@ class ProductResponse(ProductCreate):
     version: int
     demo_run_id: UUID
     is_synthetic: Literal[True] = True
+    images: list[ProductImageResponse] = Field(default_factory=list)
+    primary_image: ProductImageResponse | None = None
 
 
 class OfferCreate(Input):
@@ -61,6 +64,7 @@ class OfferResponse(BaseModel):
     is_active: bool
     demo_run_id: UUID
     is_synthetic: Literal[True] = True
+    product_image: ProductImageResponse | None = None
 
 
 class OfferFilters(BaseModel):

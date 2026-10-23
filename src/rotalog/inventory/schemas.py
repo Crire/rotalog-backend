@@ -61,6 +61,9 @@ class InventoryResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: UUID
     offer_id: UUID
+    product_id: UUID | None = None
+    product_name: str | None = None
+    offer_active: bool | None = None
     warehouse_id: UUID
     external_physical_quantity: int | None
     external_sellable_quantity: int

@@ -16,7 +16,7 @@ from rotalog.logistics.schemas import (
     LocationResponse,
 )
 
-router = APIRouter(tags=["logística e rastreamento"])
+router = APIRouter(tags=["logística e rastreamento (legado)"], deprecated=True)
 IdempotencyKey = Annotated[
     str, Header(alias="Idempotency-Key", min_length=8, max_length=200)
 ]
