@@ -38,7 +38,8 @@ def database_url() -> Iterator[str]:
         with engine.connect() as connection:
             connection.execute(text(f'CREATE SCHEMA "{schema}"'))
         yield url.update_query_dict(
-            {"options": f"-csearch_path={schema}"}
+            # O schema do teste vem primeiro; public mantém os tipos e funções PostGIS.
+            {"options": f"-csearch_path={schema},public"}
         ).render_as_string(
             hide_password=False,
         )
@@ -52,8 +53,17 @@ def database_url() -> Iterator[str]:
 def alembic_config(database_url: str) -> Config:
     root = Path(__file__).resolve().parents[1]
     config = Config(str(root / "alembic.ini"))
+    url = make_url(database_url)
+    options = url.query.get("options", "")
+    schema = options.removeprefix("-csearch_path=").split(",", maxsplit=1)[0]
+    migration_url = url.update_query_dict(
+        {"options": f"-csearch_path={schema},public"}
+    )
     config.set_main_option("script_location", str(root / "migrations"))
-    config.set_main_option("sqlalchemy.url", database_url.replace("%", "%%"))
+    config.set_main_option(
+        "sqlalchemy.url", migration_url.render_as_string(hide_password=False).replace("%", "%%")
+    )
+    config.set_main_option("version_table_schema", schema)
     return config
 
 

@@ -11,6 +11,7 @@ from rotalog.inventory.models import (
     Reservation,
     Warehouse,
 )
+from rotalog.logistics.models import DeliveryRoute, DriverLocationPoint
 from rotalog.operations.models import IdempotencyRecord
 from rotalog.ordering.models import (
     CheckoutLine,
@@ -28,7 +29,9 @@ __all__ = [
     "CapacitySlot",
     "CheckoutLine",
     "CheckoutSession",
+    "DeliveryRoute",
     "DemoRun",
+    "DriverLocationPoint",
     "Fulfillment",
     "FulfillmentLine",
     "IdempotencyRecord",

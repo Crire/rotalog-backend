@@ -21,7 +21,7 @@ jobs:
 
     services:
       postgres:
-        image: postgres:17
+        image: postgis/postgis:17-3.5
         env:
           POSTGRES_USER: rotalog
           POSTGRES_PASSWORD: ci_only
