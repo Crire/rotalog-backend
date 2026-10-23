@@ -56,19 +56,18 @@ def alembic_config(database_url: str) -> Config:
     url = make_url(database_url)
     options = url.query.get("options", "")
     schema = options.removeprefix("-csearch_path=").split(",", maxsplit=1)[0]
-    migration_url = url.update_query_dict(
-        {"options": f"-csearch_path={schema},public"}
-    )
+    migration_url = url.update_query_dict({"options": f"-csearch_path={schema},public"})
     config.set_main_option("script_location", str(root / "migrations"))
     config.set_main_option(
-        "sqlalchemy.url", migration_url.render_as_string(hide_password=False).replace("%", "%%")
+        "sqlalchemy.url",
+        migration_url.render_as_string(hide_password=False).replace("%", "%%"),
     )
     config.set_main_option("version_table_schema", schema)
     return config
 
 
 @pytest.fixture
-def demo_settings(database_url: str) -> Settings:
+def demo_settings(database_url: str, tmp_path: Path) -> Settings:
     return Settings(
         _env_file=None,
         database_url=database_url,
@@ -76,6 +75,7 @@ def demo_settings(database_url: str) -> Settings:
         demo_enabled=True,
         jwt_secret="test-only-jwt-secret-with-at-least-32-bytes",
         cors_origins=["http://localhost:5173"],
+        product_images_root=tmp_path / "product-images",
     )
 
 

@@ -13,6 +13,10 @@ planejamento manual aprovado/publicado, coleta com despacho/custódia, recebimen
 integral comprovado e consulta do progresso/timeline pelo pedido.
 O backend continua sendo a única porta de acesso aos dados para web/mobile.
 
+Imagens do catálogo: [contratos, upload privado, worker e galeria](docs/imagens-produtos-demo-v5.md).
+São imagens do produto canônico, distintas das provas de entrega. O processamento
+da demo é simplificado e aceita somente arquivos sintéticos; não é antivírus do piloto.
+
 Não funciona ainda: entregas com divergências/retornos, disputa, auditoria global,
 relógio controlado/reset de cenários, MFA/recuperação de senha,
 convites organizacionais e integrações reais. Não confundir encerramento da rota

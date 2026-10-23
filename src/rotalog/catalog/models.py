@@ -1,5 +1,6 @@
 """Produtos-variante e ofertas; dinheiro persistido exclusivamente em centavos."""
 
+from datetime import datetime
 from uuid import UUID
 
 from sqlalchemy import (
@@ -7,11 +8,14 @@ from sqlalchemy import (
     BigInteger,
     Boolean,
     CheckConstraint,
+    DateTime,
     ForeignKey,
+    Index,
     Integer,
     String,
     UniqueConstraint,
     Uuid,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
@@ -103,3 +107,48 @@ class OfferPriceVersion(UuidPrimaryKeyMixin, TimestampMixin, Base):
     amount_minor: Mapped[int] = mapped_column(BigInteger)
     currency: Mapped[str] = mapped_column(CHAR(3), default="BRL", server_default="BRL")
     minimum_order_quantity: Mapped[int] = mapped_column(Integer)
+
+
+class ProductImage(UuidPrimaryKeyMixin, TimestampMixin, Base):
+    __tablename__ = "product_image"
+    __table_args__ = (
+        CheckConstraint("position >= 0", name="position_non_negative"),
+        Index(
+            "uq_product_image_live_file",
+            "product_id",
+            "file_id",
+            unique=True,
+            postgresql_where=text("removed_at IS NULL"),
+        ),
+        Index(
+            "uq_product_image_live_primary",
+            "product_id",
+            unique=True,
+            postgresql_where=text("is_primary AND removed_at IS NULL"),
+        ),
+    )
+    product_id: Mapped[UUID] = mapped_column(
+        ForeignKey("product.id", ondelete="RESTRICT"), index=True
+    )
+    file_id: Mapped[UUID] = mapped_column(
+        ForeignKey("stored_file.id", ondelete="RESTRICT")
+    )
+    position: Mapped[int] = mapped_column(Integer)
+    is_primary: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="false"
+    )
+    alt_text: Mapped[str] = mapped_column(String(200))
+    removed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class ProductImageEvent(UuidPrimaryKeyMixin, TimestampMixin, Base):
+    __tablename__ = "product_image_event"
+    product_id: Mapped[UUID] = mapped_column(
+        ForeignKey("product.id", ondelete="RESTRICT")
+    )
+    actor_id: Mapped[UUID] = mapped_column(
+        ForeignKey("identity_user.id", ondelete="RESTRICT")
+    )
+    kind: Mapped[str] = mapped_column(String(40))
+    version: Mapped[int] = mapped_column(Integer)
+    details: Mapped[dict] = mapped_column(JSONB)

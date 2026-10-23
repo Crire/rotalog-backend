@@ -8,4 +8,5 @@ __pycache__/
 .mypy_cache/
 .env
 .env.test.local
+.local-runtime/product-images/
 

@@ -7,7 +7,7 @@ COPY pyproject.toml uv.lock README.md ./
 COPY src ./src
 COPY migrations ./migrations
 COPY alembic.ini ./
-RUN uv sync --locked --no-dev && groupadd -g 10001 rotalog && useradd -r -u 10001 -g rotalog rotalog
+RUN uv sync --locked --no-dev && groupadd -g 10001 rotalog && useradd -r -u 10001 -g rotalog rotalog && install -d -m 0700 -o 10001 -g 10001 /var/lib/rotalog/product-images
 USER 10001:10001
 ENV PATH="/app/.venv/bin:$PATH"
 EXPOSE 8000

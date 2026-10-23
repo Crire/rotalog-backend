@@ -33,6 +33,11 @@ def test_migrations_run_on_empty_database(alembic_config, database_url):
             "order_item",
             "payment",
             "payment_allocation",
+            "stored_file",
+            "file_event",
+            "file_download_grant",
+            "product_image",
+            "product_image_event",
         } <= set(inspector.get_table_names())
         columns = {column["name"]: column for column in inspector.get_columns("offer")}
         assert isinstance(columns["amount_minor"]["type"], sa.BigInteger)
@@ -45,6 +50,42 @@ def test_migrations_run_on_empty_database(alembic_config, database_url):
     command.downgrade(alembic_config, "base")
     command.upgrade(alembic_config, "head")
     command.check(alembic_config)
+
+
+def test_product_images_upgrade_preserves_previous_catalog(
+    alembic_config, database_url
+):
+    command.upgrade(alembic_config, "20261023_0007")
+    run_id, product_id = uuid4(), uuid4()
+    engine = sa.create_engine(database_url)
+    try:
+        with engine.begin() as connection:
+            connection.execute(
+                sa.text(
+                    "INSERT INTO demo_run(id,name) VALUES (:id,'Snapshot sintético')"
+                ),
+                {"id": run_id},
+            )
+            connection.execute(
+                sa.text(
+                    "INSERT INTO product(id,name,demo_run_id,publication_state) VALUES (:id,'Catálogo preservado',:run,'PUBLISHED')"
+                ),
+                {"id": product_id, "run": run_id},
+            )
+        command.upgrade(alembic_config, "head")
+        command.check(alembic_config)
+        with engine.connect() as connection:
+            assert connection.execute(
+                sa.text("SELECT name,publication_state FROM product WHERE id=:id"),
+                {"id": product_id},
+            ).one() == ("Catálogo preservado", "PUBLISHED")
+            assert connection.scalar(sa.text("SELECT count(*) FROM stored_file")) == 0
+            assert connection.scalar(sa.text("SELECT count(*) FROM product_image")) == 0
+        command.downgrade(alembic_config, "20261023_0007")
+        command.upgrade(alembic_config, "head")
+        command.check(alembic_config)
+    finally:
+        engine.dispose()
 
 
 @pytest.mark.parametrize(

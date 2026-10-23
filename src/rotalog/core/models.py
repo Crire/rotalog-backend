@@ -1,6 +1,12 @@
 """Registro explícito dos modelos para migrações e ferramentas de banco."""
 
-from rotalog.catalog.models import Offer, OfferPriceVersion, Product
+from rotalog.catalog.models import (
+    Offer,
+    OfferPriceVersion,
+    Product,
+    ProductImage,
+    ProductImageEvent,
+)
 from rotalog.demo.models import DemoRun
 from rotalog.finance.models import Payment, PaymentAllocation
 from rotalog.identity.models import AuthSession, LoginThrottle, RefreshToken, User
@@ -27,6 +33,7 @@ from rotalog.logistics.delivery_models import (
     Vehicle,
 )
 from rotalog.logistics.models import DeliveryRoute, DriverLocationPoint
+from rotalog.operations.file_models import FileDownloadGrant, FileEvent, StoredFile
 from rotalog.operations.models import IdempotencyRecord
 from rotalog.ordering.models import (
     CheckoutLine,
@@ -52,6 +59,8 @@ __all__ = [
     "DeliveryRoute",
     "DemoRun",
     "DriverLocationPoint",
+    "FileDownloadGrant",
+    "FileEvent",
     "Fulfillment",
     "FulfillmentLine",
     "IdempotencyRecord",
@@ -68,6 +77,8 @@ __all__ = [
     "PaymentAllocation",
     "PrivateEvidence",
     "Product",
+    "ProductImage",
+    "ProductImageEvent",
     "Purchase",
     "RefreshToken",
     "Reservation",
@@ -76,6 +87,7 @@ __all__ = [
     "RouteLoad",
     "RoutePlanVersion",
     "RouteStop",
+    "StoredFile",
     "SupplierOrder",
     "User",
     "Vehicle",
