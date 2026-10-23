@@ -23,13 +23,14 @@ class Role(StrEnum):
     SUPPLIER = "SUPPLIER_OPERATOR"
     DRIVER = "DRIVER"
     ADMIN = "ROTALOG_ADMIN"
+    PLANNER = "ROUTE_PLANNER"
 
 
 class User(UuidPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "identity_user"
     __table_args__ = (
         CheckConstraint(
-            "role IN ('BUYER_ADMIN', 'SUPPLIER_OPERATOR', 'DRIVER', 'ROTALOG_ADMIN')",
+            "role IN ('BUYER_ADMIN', 'SUPPLIER_OPERATOR', 'DRIVER', 'ROTALOG_ADMIN', 'ROUTE_PLANNER')",
             name="role_valid",
         ),
     )

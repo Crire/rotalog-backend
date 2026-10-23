@@ -27,11 +27,13 @@ from rotalog.inventory.models import CapacitySlot, InventoryProjection, Warehous
 from rotalog.organizations.models import Membership, Organization
 
 ADMIN_ID = UUID("42359c32-0939-4c80-bb8d-1d601fe57ce4")
+PLANNER_ID = UUID("62c215db-dc12-48f5-a974-ecac82accc24")
 ROLES = {
     "comprador": Role.BUYER,
     "fornecedor": Role.SUPPLIER,
     "motorista": Role.DRIVER,
     "admin": Role.ADMIN,
+    "planejador": Role.PLANNER,
 }
 
 
@@ -42,7 +44,11 @@ def seed_demo(
     if not 12 <= len(password) <= 1024:
         raise ValueError("A senha da demo deve ter entre 12 e 1024 caracteres")
     # Hashes fora dos locks; o seed só usa os hashes de usuários ainda ausentes.
-    users = (*USERS, (ADMIN_ID, "admin", "Operação RotaLog Sintética"))
+    users = (
+        *USERS,
+        (ADMIN_ID, "admin", "Operação RotaLog Sintética"),
+        (PLANNER_ID, "planejador", "Planejamento Sintético"),
+    )
     hashes = {alias: password_hash.hash(password) for _, alias, _ in users}
     with transactional_session(factory) as session:
         session.execute(text("SELECT pg_advisory_xact_lock(20261018)"))
@@ -62,7 +68,7 @@ def seed_demo(
                     demo_run_id=DEMO_RUN_ID,
                     kind="SUPPLIER"
                     if alias == "fornecedor"
-                    else ("INTERNAL" if alias == "admin" else "BUYER"),
+                    else ("INTERNAL" if alias in {"admin", "planejador"} else "BUYER"),
                 )
                 session.add(organization)
                 session.flush()

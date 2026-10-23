@@ -6,7 +6,7 @@ from uuid import UUID
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, sessionmaker
 
-from rotalog.catalog.models import Offer
+from rotalog.catalog.models import Offer, Product
 from rotalog.core.contracts import Page, check_version, fail
 from rotalog.core.database import transactional_session
 from rotalog.identity.models import Role
@@ -152,7 +152,15 @@ def list_inventory(
         total = session.scalar(select(func.count()).select_from(query.subquery()))
         return Page(
             items=[
-                InventoryResponse.model_validate(item)
+                InventoryResponse.model_validate(item).model_copy(
+                    update={
+                        "product_id": session.get(Offer, item.offer_id).product_id,
+                        "product_name": session.get(
+                            Product, session.get(Offer, item.offer_id).product_id
+                        ).name,
+                        "offer_active": session.get(Offer, item.offer_id).is_active,
+                    }
+                )
                 for item in session.scalars(
                     query.order_by(InventoryProjection.id)
                     .offset((page - 1) * page_size)
@@ -348,6 +356,16 @@ def release(
 ) -> None:
     if quantity <= 0:
         return
+    if (
+        quantity
+        > reservation.quantity
+        - reservation.released_quantity
+        - reservation.consumed_quantity
+    ):
+        fail(
+            "RESERVATION_ALREADY_CONSUMED",
+            "Não é possível liberar reserva já consumida na coleta.",
+        )
     item = session.scalar(
         select(InventoryProjection)
         .where(InventoryProjection.id == reservation.projection_id)

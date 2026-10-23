@@ -163,6 +163,10 @@ class Reservation(UuidPrimaryKeyMixin, TimestampMixin, Base):
             "released_quantity >= 0 AND released_quantity <= quantity",
             name="released_valid",
         ),
+        CheckConstraint(
+            "consumed_quantity >= 0 AND consumed_quantity + released_quantity <= quantity",
+            name="consumed_valid",
+        ),
     )
     checkout_id: Mapped[UUID] = mapped_column(
         ForeignKey("checkout_session.id", ondelete="RESTRICT")
@@ -175,6 +179,9 @@ class Reservation(UuidPrimaryKeyMixin, TimestampMixin, Base):
     )
     quantity: Mapped[int] = mapped_column(Integer)
     released_quantity: Mapped[int] = mapped_column(
+        Integer, default=0, server_default="0"
+    )
+    consumed_quantity: Mapped[int] = mapped_column(
         Integer, default=0, server_default="0"
     )
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))

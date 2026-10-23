@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field, model_validator
 
 from rotalog.catalog.schemas import ProductResponse
 from rotalog.core.contracts import Input, PositiveQuantity, Quantity, Reason, Versioned
+from rotalog.logistics.delivery_schemas import RouteSummary
 
 
 class CheckoutItem(Input):
@@ -150,6 +151,9 @@ class SupplierOrderResponse(BaseModel):
     allowed_actions: list[str]
     is_synthetic: Literal[True]
     fulfillments: list[FulfillmentResponse]
+    created_at: datetime
+    updated_at: datetime
+    delivery_routes: list[RouteSummary] = Field(default_factory=list)
 
 
 class PurchaseResponse(BaseModel):

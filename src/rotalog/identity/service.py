@@ -42,6 +42,7 @@ CAPABILITIES = {
     ],
     Role.ADMIN: ["catalog:read", "product:write", "warehouse:review"],
     Role.DRIVER: [],
+    Role.PLANNER: ["route:plan", "route:publish", "fleet:manage"],
 }
 
 

@@ -15,6 +15,7 @@ dependencies = [
     "httpx>=0.28,<1",
     "pydantic>=2,<3",
     "pydantic-settings>=2,<3",
+    "Pillow>=12,<14",
     "python-multipart>=0.0.20,<1",
     "pwdlib[argon2]>=0.3,<1",
     "PyJWT>=2.10,<3",

@@ -17,6 +17,11 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--base-url", default="http://127.0.0.1:8000")
     parser.add_argument(
+        "--with-delivery",
+        action="store_true",
+        help="Inclui rota manual, coleta e entrega integral com prova sintética",
+    )
+    parser.add_argument(
         "--browser-origin",
         default="http://localhost:5173",
         help="Origem do portal já configurada na allowlist CORS da API",
@@ -286,6 +291,21 @@ def main() -> None:
             inventory["effective_sellable_quantity"] == 17
             and inventory["rotalog_reserved_not_reflected_quantity"] == 3
         )
+        if args.with_delivery:
+            from smoke_delivery import exercise_delivery
+
+            final, inventory = exercise_delivery(
+                request,
+                login,
+                admin_password,
+                suffix,
+                supplier,
+                buyer,
+                warehouse,
+                fulfillment,
+                order,
+                offer,
+            )
         unrelated, _ = login("fornecedor@demo.rotalog.invalid", admin_password)
         request(
             "GET",

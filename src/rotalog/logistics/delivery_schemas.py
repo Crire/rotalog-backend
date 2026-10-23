@@ -1,0 +1,156 @@
+"""Contratos da rota manual e prova da demonstração V5."""
+
+from datetime import datetime
+from decimal import Decimal
+from typing import Annotated, Literal
+from uuid import UUID
+
+from pydantic import AwareDatetime, BaseModel, Field, model_validator
+
+from rotalog.core.contracts import (
+    Input,
+    Name,
+    PositiveQuantity,
+    Quantity,
+    Reason,
+    Versioned,
+)
+
+Latitude = Annotated[Decimal, Field(ge=-90, le=90, max_digits=9, decimal_places=6)]
+Longitude = Annotated[Decimal, Field(ge=-180, le=180, max_digits=9, decimal_places=6)]
+
+
+class VehicleCreate(Input):
+    registration: Annotated[
+        str, Field(min_length=3, max_length=30, pattern=r"^[A-Z0-9-]+$")
+    ]
+    package_units: PositiveQuantity
+    weight_grams: PositiveQuantity
+    volume_cm3: PositiveQuantity
+
+
+class Destination(Input):
+    supplier_order_id: UUID
+    address: Annotated[str, Field(min_length=5, max_length=500)]
+    latitude: Latitude
+    longitude: Longitude
+    starts_at: AwareDatetime
+    ends_at: AwareDatetime
+    time_zone: Literal["America/Manaus"] = "America/Manaus"
+    service_seconds: PositiveQuantity = 300
+
+    @model_validator(mode="after")
+    def window(self):
+        if self.ends_at <= self.starts_at:
+            raise ValueError("Janela deve terminar após o início")
+        return self
+
+
+class ManualPlanCreate(Input):
+    warehouse_id: UUID
+    driver_id: UUID
+    vehicle_id: UUID
+    fulfillment_ids: list[UUID] = Field(min_length=1, max_length=30)
+    deliveries: list[Destination] = Field(min_length=1, max_length=30)
+    reason: Reason
+
+    @model_validator(mode="after")
+    def distinct(self):
+        if len(set(self.fulfillment_ids)) != len(self.fulfillment_ids):
+            raise ValueError("Lotes repetidos")
+        ids = [item.supplier_order_id for item in self.deliveries]
+        if len(set(ids)) != len(ids):
+            raise ValueError("Uma parada por pedido nesta demo")
+        return self
+
+
+class AttemptCreate(Versioned):
+    device_id: Annotated[str, Field(min_length=3, max_length=100)]
+
+
+class ReceiverAuthorization(Input):
+    receiver_role: Name
+
+
+class OutcomeInput(Input):
+    fulfillment_line_id: UUID
+    buyer_accepted_quantity: Quantity
+    delivery_refused_quantity: Quantity = 0
+
+
+class ProofInput(Versioned):
+    captured_at: AwareDatetime
+    latitude: Latitude
+    longitude: Longitude
+    accuracy_meters: Annotated[
+        Decimal, Field(ge=0, le=10000, max_digits=8, decimal_places=2)
+    ]
+    receiver_code: Annotated[str, Field(pattern=r"^[0-9]{6}$")] | None = Field(
+        default=None, repr=False
+    )
+    signature_id: UUID | None = None
+    photo_ids: list[UUID] = Field(default_factory=list, max_length=5)
+    visible_condition: Name
+    package_count: PositiveQuantity
+    observations: Annotated[str, Field(max_length=1000)] = ""
+    lines: list[OutcomeInput] = Field(min_length=1, max_length=100)
+
+    @model_validator(mode="after")
+    def distinct(self):
+        ids = [line.fulfillment_line_id for line in self.lines]
+        if len(set(ids)) != len(ids) or len(set(self.photo_ids)) != len(self.photo_ids):
+            raise ValueError("Linhas e fotos devem ser únicas")
+        return self
+
+
+class RouteSummary(BaseModel):
+    id: UUID
+    state: str
+    version: int
+    driver_id: UUID
+    vehicle_id: UUID
+    updated_at: datetime
+    is_synthetic: Literal[True] = True
+
+
+class StopResponse(BaseModel):
+    id: UUID
+    supplier_order_id: UUID | None
+    sequence: int
+    kind: str
+    state: str
+    address_snapshot: dict
+    attempt_id: UUID | None
+    attempt_state: str | None
+    attempt_version: int | None
+
+
+class RouteResponse(RouteSummary):
+    warehouse_id: UUID
+    plan_version_id: UUID
+    stops: list[StopResponse]
+
+
+class PlanResponse(BaseModel):
+    id: UUID
+    state: str
+    version: int
+    snapshot: dict
+    reason: str
+    is_synthetic: Literal[True] = True
+
+
+class EvidenceResponse(BaseModel):
+    id: UUID
+    kind: str
+    mime_type: str
+    sha256: str
+    download_path: str
+
+
+class AttemptResponse(BaseModel):
+    id: UUID
+    route_stop_id: UUID
+    state: str
+    version: int
+    is_synthetic: Literal[True] = True
