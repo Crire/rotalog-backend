@@ -17,6 +17,12 @@ from rotalog.inventory.models import (
     Reservation,
     Warehouse,
 )
+from rotalog.logistics.cargo_models import (
+    CargoEvent,
+    CargoInspection,
+    CargoIssue,
+    CargoIssuePhoto,
+)
 from rotalog.logistics.delivery_models import (
     CustodyEvent,
     DeliveryAttempt,
@@ -33,6 +39,11 @@ from rotalog.logistics.delivery_models import (
     Vehicle,
 )
 from rotalog.logistics.models import DeliveryRoute, DriverLocationPoint
+from rotalog.logistics.tracking_models import (
+    CurrentRoutePosition,
+    LocationBatch,
+    RouteLocationPoint,
+)
 from rotalog.operations.file_models import FileDownloadGrant, FileEvent, StoredFile
 from rotalog.operations.models import IdempotencyRecord
 from rotalog.ordering.models import (
@@ -49,8 +60,13 @@ from rotalog.organizations.models import Membership, Organization
 __all__ = [
     "AuthSession",
     "CapacitySlot",
+    "CargoEvent",
+    "CargoInspection",
+    "CargoIssue",
+    "CargoIssuePhoto",
     "CheckoutLine",
     "CheckoutSession",
+    "CurrentRoutePosition",
     "CustodyEvent",
     "DeliveryAttempt",
     "DeliveryOutcomeLine",
@@ -66,6 +82,7 @@ __all__ = [
     "IdempotencyRecord",
     "InventoryAdjustment",
     "InventoryProjection",
+    "LocationBatch",
     "LoginThrottle",
     "Membership",
     "Offer",
@@ -85,6 +102,7 @@ __all__ = [
     "Route",
     "RouteAssignment",
     "RouteLoad",
+    "RouteLocationPoint",
     "RoutePlanVersion",
     "RouteStop",
     "StoredFile",

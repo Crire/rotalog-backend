@@ -49,6 +49,10 @@ class Settings(BaseSettings):
     )
     product_image_max_pixels: int = Field(default=16_000_000, ge=1, le=16_000_000)
     product_image_upload_ttl_seconds: int = Field(default=900, ge=60, le=3600)
+    tracking_stale_seconds: int = Field(default=120, ge=30, le=3600)
+    tracking_sync_window_seconds: int = Field(default=86400, ge=60, le=86400)
+    tracking_accuracy_warning_meters: int = Field(default=100, ge=1, le=10000)
+    tracking_batches_per_minute: int = Field(default=20, ge=1, le=120)
 
     @field_validator("jwt_secret", mode="before")
     @classmethod

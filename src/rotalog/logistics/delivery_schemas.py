@@ -15,6 +15,8 @@ from rotalog.core.contracts import (
     Reason,
     Versioned,
 )
+from rotalog.logistics.cargo_schemas import CargoSummary, ManifestLineResponse
+from rotalog.logistics.tracking_schemas import TrackingCurrent
 
 Latitude = Annotated[Decimal, Field(ge=-90, le=90, max_digits=9, decimal_places=6)]
 Longitude = Annotated[Decimal, Field(ge=-180, le=180, max_digits=9, decimal_places=6)]
@@ -38,6 +40,11 @@ class Destination(Input):
     ends_at: AwareDatetime
     time_zone: Literal["America/Manaus"] = "America/Manaus"
     service_seconds: PositiveQuantity = 300
+    recipient_name: Name | None = None
+    contact_name: Name | None = None
+    contact_phone: Annotated[str, Field(max_length=50)] | None = None
+    reference: Annotated[str, Field(max_length=500)] | None = None
+    instructions: Annotated[str, Field(max_length=1000)] | None = None
 
     @model_validator(mode="after")
     def window(self):
@@ -123,12 +130,21 @@ class StopResponse(BaseModel):
     attempt_id: UUID | None
     attempt_state: str | None
     attempt_version: int | None
+    items: list[ManifestLineResponse] = Field(default_factory=list)
 
 
 class RouteResponse(RouteSummary):
     warehouse_id: UUID
     plan_version_id: UUID
     stops: list[StopResponse]
+    code: str | None = None
+    scheduled_date: str | None = None
+    started_at: datetime | None = None
+    execution_ended_at: datetime | None = None
+    vehicle: dict | None = None
+    cargo: CargoSummary | None = None
+    tracking: TrackingCurrent | None = None
+    allowed_actions: list[str] = Field(default_factory=list)
 
 
 class PlanResponse(BaseModel):

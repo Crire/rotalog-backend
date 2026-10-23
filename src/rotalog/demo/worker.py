@@ -3,6 +3,7 @@
 import argparse
 import time
 
+import rotalog.core.models  # noqa: F401 — registro completo também no processo isolado
 from rotalog.core.config import get_settings
 from rotalog.core.database import create_database_engine, create_session_factory
 from rotalog.identity.security import require_demo

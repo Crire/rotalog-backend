@@ -1,4 +1,4 @@
-"""Upload/confirm/worker privados para PRODUCT_IMAGE, somente na demo."""
+"""Arquivos privados por finalidade; validação sintética fora das transações."""
 
 import hashlib
 import secrets
@@ -32,6 +32,8 @@ def _status(item):
         file_id=item.id,
         purpose=item.purpose,
         product_id=item.product_id,
+        attempt_id=item.attempt_id,
+        route_id=item.route_id,
         status=item.status,
         size_bytes=item.size_bytes,
         mime_type=item.mime_type,
@@ -42,19 +44,45 @@ def _status(item):
 
 
 def _owned_file(session, file_id, actor, *, lock=False):
-    from rotalog.catalog.service import image_product
-
     query = select(StoredFile).where(
         StoredFile.id == file_id,
         StoredFile.demo_run_id == actor.demo_run_id,
         StoredFile.organization_id == actor.organization_id,
-        StoredFile.purpose == "PRODUCT_IMAGE",
     )
     item = session.scalar(query.with_for_update() if lock else query)
     if item is None:
         fail("FILE_NOT_FOUND", "Arquivo não encontrado.", 404)
-    image_product(session, item.product_id, actor, write=True)
+    _write_context(session, item, actor)
     return item
+
+
+def _write_context(session, item, actor, *, creating=False):
+    if item.purpose == "PRODUCT_IMAGE":
+        from rotalog.catalog.service import image_product
+
+        image_product(session, item.product_id, actor, write=True)
+        return
+    if actor.role != Role.DRIVER:
+        fail(
+            "CAPABILITY_REQUIRED",
+            "Somente o motorista responsável envia arquivo operacional.",
+            403,
+        )
+    from rotalog.logistics.delivery_service import authorized_route, evidence_context
+
+    if item.purpose == "CARGO_ISSUE_PHOTO":
+        route = authorized_route(session, item.route_id, actor)
+        if route.state != "ACCEPTED":
+            fail(
+                "CARGO_READ_ONLY",
+                "Fotos de conferência exigem carga ainda não recebida.",
+            )
+    else:
+        attempt, _, _ = evidence_context(session, item.attempt_id, actor)
+        if creating and attempt.state not in {"STARTED", "PROOF_PENDING"}:
+            fail("ATTEMPT_INVALID_STATE", "Tentativa não aceita novos arquivos.")
+    if not creating and item.uploaded_by != actor.id:
+        fail("FILE_NOT_FOUND", "Arquivo não encontrado.", 404)
 
 
 def _check_receivable(item):
@@ -65,17 +93,19 @@ def _check_receivable(item):
 
 
 def create_intent(data, key, actor, factory, settings):
-    from rotalog.catalog.service import image_product
-
     require_demo(settings)
     if data.size_bytes > settings.product_image_max_bytes:
         fail("FILE_SIZE_INVALID", "Tamanho acima do limite configurado.", 422)
     with transactional_session(factory) as session:
-        authorize(session, actor, {Role.ADMIN}, write=True)
-        image_product(session, data.product_id, actor, write=True)
+        authorize(session, actor, {Role.ADMIN, Role.DRIVER}, write=True)
+        _write_context(session, data, actor, creating=True)
         operation = "product-image:upload-intent"
         cached, digest = begin_idempotency(
-            session, actor, operation, key, data.model_dump(mode="json")
+            session,
+            actor,
+            operation,
+            key,
+            data.model_dump(mode="json", exclude_none=True),
         )
         if cached:
             return cached
@@ -116,7 +146,7 @@ def create_intent(data, key, actor, factory, settings):
                 429,
             )
         item = StoredFile(
-            **data.model_dump(),
+            **data.model_dump(exclude_none=True),
             uploaded_by=actor.id,
             organization_id=actor.organization_id,
             demo_run_id=actor.demo_run_id,
@@ -147,7 +177,7 @@ def upload_content(file_id, content, key, actor, factory, settings):
     }
     operation = f"product-image:upload:{file_id}"
     with transactional_session(factory) as session:
-        authorize(session, actor, {Role.ADMIN}, write=True)
+        authorize(session, actor, {Role.ADMIN, Role.DRIVER}, write=True)
         item = _owned_file(session, file_id, actor)
         cached, _ = begin_idempotency(session, actor, operation, key, payload)
         if cached:
@@ -158,7 +188,7 @@ def upload_content(file_id, content, key, actor, factory, settings):
     # o mesmo objeto imutável; nunca disponibiliza um arquivo sem commit posterior.
     PrivateImageStorage(settings).put(run_id, file_id, content)
     with transactional_session(factory) as session:
-        authorize(session, actor, {Role.ADMIN}, write=True)
+        authorize(session, actor, {Role.ADMIN, Role.DRIVER}, write=True)
         item = _owned_file(session, file_id, actor, lock=True)
         cached, digest = begin_idempotency(session, actor, operation, key, payload)
         if cached:
@@ -205,7 +235,7 @@ def confirm_upload(file_id, key, actor, factory, settings):
     require_demo(settings)
     operation = f"product-image:confirm:{file_id}"
     with transactional_session(factory) as session:
-        authorize(session, actor, {Role.ADMIN}, write=True)
+        authorize(session, actor, {Role.ADMIN, Role.DRIVER}, write=True)
         item = _owned_file(session, file_id, actor)
         cached, _ = begin_idempotency(session, actor, operation, key, {})
         if cached:
@@ -224,7 +254,7 @@ def confirm_upload(file_id, key, actor, factory, settings):
         settings, *snapshot
     )  # Leitura/decodificação fora dos locks.
     with transactional_session(factory) as session:
-        authorize(session, actor, {Role.ADMIN}, write=True)
+        authorize(session, actor, {Role.ADMIN, Role.DRIVER}, write=True)
         item = _owned_file(session, file_id, actor, lock=True)
         cached, digest = begin_idempotency(session, actor, operation, key, {})
         if cached:
@@ -245,7 +275,7 @@ def confirm_upload(file_id, key, actor, factory, settings):
     return response
 
 
-def process_product_image_files(factory, settings, *, limit=20):
+def process_product_image_files(factory, settings, *, limit=20, file_id=None):
     """Fila PostgreSQL recuperável. Validação sintética NÃO comprova ausência de malware."""
     require_demo(settings)
     processed = 0
@@ -257,6 +287,7 @@ def process_product_image_files(factory, settings, *, limit=20):
                 .join(DemoRun)
                 .where(
                     DemoRun.is_active.is_(True),
+                    StoredFile.id == file_id if file_id else True,
                     or_(
                         and_(
                             StoredFile.status == "QUARANTINED",
@@ -332,12 +363,84 @@ def _readable_file(session, file_id, actor):
     )
     if item is None:
         fail("FILE_NOT_FOUND", "Arquivo não encontrado.", 404)
+    if item.purpose != "PRODUCT_IMAGE":
+        from rotalog.logistics.cargo_models import CargoIssuePhoto
+        from rotalog.logistics.delivery_models import PrivateEvidence
+        from rotalog.logistics.delivery_service import (
+            authorized_route,
+            evidence_context,
+        )
+
+        if item.purpose == "CARGO_ISSUE_PHOTO":
+            authorized_route(session, item.route_id, actor)
+            attached = session.scalar(
+                select(CargoIssuePhoto.id).where(CargoIssuePhoto.file_id == item.id)
+            )
+            readable = (
+                actor.id == item.uploaded_by or actor.role == Role.SUPPLIER and attached
+            )
+        else:
+            if actor.role not in {Role.DRIVER, Role.BUYER, Role.SUPPLIER}:
+                fail("FILE_NOT_FOUND", "Arquivo não encontrado.", 404)
+            evidence_context(session, item.attempt_id, actor)
+            attached = session.scalar(
+                select(PrivateEvidence.id).where(PrivateEvidence.file_id == item.id)
+            )
+            readable = actor.id == item.uploaded_by or attached
+        if not readable:
+            fail(
+                "FILE_NOT_FOUND",
+                "Arquivo ainda não associado a recurso autorizado.",
+                404,
+            )
+        return item
     if actor.role == Role.ADMIN and item.organization_id == actor.organization_id:
         return item
     if item.status != "AVAILABLE" or not image_file_is_visible(
         session, item.id, item.product_id, actor
     ):
         fail("FILE_NOT_FOUND", "Arquivo não encontrado.", 404)
+    return item
+
+
+def available_cargo_photo(session, file_id, route_id, actor):
+    item = session.scalar(
+        select(StoredFile).where(
+            StoredFile.id == file_id,
+            StoredFile.route_id == route_id,
+            StoredFile.purpose == "CARGO_ISSUE_PHOTO",
+            StoredFile.demo_run_id == actor.demo_run_id,
+            StoredFile.uploaded_by == actor.id,
+            StoredFile.status == "AVAILABLE",
+        )
+    )
+    if item is None:
+        fail("FILE_NOT_AVAILABLE", "Foto de conferência não disponível neste contexto.")
+    from rotalog.logistics.cargo_models import CargoIssuePhoto
+
+    if session.scalar(
+        select(CargoIssuePhoto.id).where(CargoIssuePhoto.file_id == file_id)
+    ):
+        fail("FILE_ALREADY_ATTACHED", "Foto já associada a uma ocorrência.")
+    return item
+
+
+def available_attempt_file(session, file_id, attempt_id, kind, actor):
+    item = session.scalar(
+        select(StoredFile).where(
+            StoredFile.id == file_id,
+            StoredFile.attempt_id == attempt_id,
+            StoredFile.purpose == f"DELIVERY_{kind}",
+            StoredFile.demo_run_id == actor.demo_run_id,
+            StoredFile.status == "AVAILABLE",
+        )
+    )
+    if item is None:
+        fail(
+            "EVIDENCE_NOT_FOUND",
+            "Arquivo disponível não encontrado para esta tentativa/tipo.",
+            404,
+        )
     return item
 
 

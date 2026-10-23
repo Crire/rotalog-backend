@@ -47,6 +47,7 @@ class RoutePlanVersion(UuidPrimaryKeyMixin, TimestampMixin, Base):
         String(32), default="PROPOSED", server_default="PROPOSED"
     )
     version: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
+
     snapshot: Mapped[dict] = mapped_column(JSONB)
     reason: Mapped[str] = mapped_column(String(500))
 
@@ -69,6 +70,8 @@ class Route(UuidPrimaryKeyMixin, TimestampMixin, Base):
         String(32), default="PUBLISHED", server_default="PUBLISHED"
     )
     version: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    execution_ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class RouteAssignment(UuidPrimaryKeyMixin, TimestampMixin, Base):
@@ -146,6 +149,9 @@ class PrivateEvidence(UuidPrimaryKeyMixin, TimestampMixin, Base):
     mime_type: Mapped[str] = mapped_column(String(40))
     sha256: Mapped[str] = mapped_column(String(64))
     content: Mapped[bytes] = mapped_column(LargeBinary, deferred=True)
+    file_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("stored_file.id"), unique=True
+    )
 
 
 class DeliveryProof(UuidPrimaryKeyMixin, TimestampMixin, Base):

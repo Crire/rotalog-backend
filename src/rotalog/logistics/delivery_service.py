@@ -5,9 +5,11 @@ import hmac
 import io
 import math
 import secrets
+import time
 import warnings
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
+from zoneinfo import ZoneInfo
 
 from PIL import Image, UnidentifiedImageError
 from sqlalchemy import func, select
@@ -101,6 +103,11 @@ def _route(session, route_id, actor, *, lock=False):
     return route
 
 
+def authorized_route(session, route_id, actor, *, lock=False):
+    """Fronteira pública para carga, tracking e arquivos; revalida vínculo da rota."""
+    return _route(session, route_id, actor, lock=lock)
+
+
 def route_summary(session, route):
     assignment = session.scalar(
         select(RouteAssignment).where(RouteAssignment.route_id == route.id)
@@ -117,6 +124,8 @@ def route_summary(session, route):
 
 
 def _route_response(session, route, actor):
+    from rotalog.logistics.cargo_service import manifest_lines, manifest_response
+
     stops = []
     for stop in session.scalars(
         select(RouteStop)
@@ -144,12 +153,70 @@ def _route_response(session, route, actor):
                 "attempt_id": str(attempt.id) if attempt else None,
                 "attempt_state": attempt.state if attempt else None,
                 "attempt_version": attempt.version if attempt else None,
+                "items": manifest_lines(
+                    session, route.id, order_id=stop.supplier_order_id
+                )
+                if stop.kind == "DELIVERY"
+                else [],
             }
         )
+    privileged = actor.role in {Role.DRIVER, Role.SUPPLIER, Role.PLANNER}
+    cargo = manifest_response(session, route) if privileged else None
+    assignment = session.scalar(
+        select(RouteAssignment).where(RouteAssignment.route_id == route.id)
+    )
+    vehicle = session.get(Vehicle, assignment.vehicle_id)
+    actions = []
+    if actor.role == Role.DRIVER:
+        if route.state == "PUBLISHED":
+            actions = ["accept"]
+        elif route.state == "ACCEPTED":
+            actions = ["inspect_cargo", "report_cargo_issue"]
+            if cargo["declaration_valid"]:
+                actions.append("receive_cargo")
+            elif not cargo["inspection_required"]:
+                actions.append("legacy_pickup")
+        elif route.state == "READY_TO_START":
+            actions = ["start"]
+        elif route.state == "STARTED":
+            actions = ["record_location", "execute_delivery", "end_execution"]
+        elif route.state == "EXECUTION_ENDED" and all(
+            i["state"] == "COMPLETED" for i in stops
+        ):
+            actions = ["complete_operation"]
     return route_summary(session, route) | {
         "warehouse_id": str(route.warehouse_id),
         "plan_version_id": str(route.plan_version_id),
         "stops": stops,
+        "code": f"R-{str(route.id)[:8].upper()}",
+        "scheduled_date": next(
+            (
+                datetime.fromisoformat(s["address_snapshot"]["starts_at"])
+                .astimezone(ZoneInfo("America/Manaus"))
+                .date()
+                .isoformat()
+                for s in stops
+                if s["kind"] == "DELIVERY" and s["address_snapshot"].get("starts_at")
+            ),
+            None,
+        ),
+        "started_at": route.started_at.isoformat() if route.started_at else None,
+        "execution_ended_at": route.execution_ended_at.isoformat()
+        if route.execution_ended_at
+        else None,
+        "vehicle": {
+            "id": str(vehicle.id),
+            "registration": vehicle.registration,
+            "package_units": vehicle.package_units,
+            "weight_grams": vehicle.weight_grams,
+            "volume_cm3": vehicle.volume_cm3,
+        }
+        if privileged
+        else None,
+        "cargo": {k: v for k, v in cargo.items() if k not in {"lines", "issues"}}
+        if cargo
+        else None,
+        "allowed_actions": actions,
     }
 
 
@@ -210,6 +277,8 @@ def drivers(actor, factory):
 
 
 def _validate_plan(session, snapshot, actor):
+    from rotalog.logistics.cargo_service import cargo_fingerprint
+
     warehouse = session.scalar(
         select(Warehouse).where(
             Warehouse.id == UUID(snapshot["warehouse_id"]),
@@ -250,6 +319,13 @@ def _validate_plan(session, snapshot, actor):
     )
     if len(loads) != len(snapshot["fulfillment_ids"]):
         fail("FULFILLMENT_NOT_ELIGIBLE", "Lote não encontrado.", 404)
+    if snapshot.get("cargo_fingerprint") and snapshot[
+        "cargo_fingerprint"
+    ] != cargo_fingerprint(session, [load.id for load in loads]):
+        fail(
+            "PLAN_CARGO_CHANGED",
+            "Carga mudou após proposta; crie uma nova versão para aprovação.",
+        )
     order_ids = set()
     packages = weight = volume = 0
     for load in loads:
@@ -329,9 +405,11 @@ def _plan_response(plan):
 
 
 def create_plan(data: ManualPlanCreate, key, actor, factory):
+    from rotalog.logistics.cargo_service import cargo_fingerprint
+
     with transactional_session(factory) as session:
         authorize(session, actor, {Role.PLANNER}, write=True)
-        payload = data.model_dump(mode="json")
+        payload = data.model_dump(mode="json", exclude_none=True)
         operation = "manual-route-plan:create"
         cached, digest = begin_idempotency(session, actor, operation, key, payload)
         if cached:
@@ -340,7 +418,8 @@ def create_plan(data: ManualPlanCreate, key, actor, factory):
         plan = RoutePlanVersion(
             demo_run_id=actor.demo_run_id,
             created_by=actor.id,
-            snapshot=payload,
+            snapshot=payload
+            | {"cargo_fingerprint": cargo_fingerprint(session, data.fulfillment_ids)},
             reason=data.reason,
         )
         session.add(plan)
@@ -460,14 +539,39 @@ def plan_command(plan_id, command, data, key, actor, factory):
         return finish_idempotency(session, actor, operation, key, digest, response)
 
 
-def get_routes(actor, factory, page=1, page_size=25, route_id=None):
+def get_routes(
+    actor,
+    factory,
+    page=1,
+    page_size=25,
+    route_id=None,
+    *,
+    state=None,
+    active=None,
+    settings=None,
+):
+    def response(session, route):
+        result = _route_response(session, route, actor)
+        if settings and actor.role in {Role.DRIVER, Role.PLANNER, Role.SUPPLIER}:
+            from rotalog.logistics.tracking_service import current_view
+
+            result["tracking"] = current_view(session, route, settings)
+        return result
+
     with transactional_session(factory) as session:
         authorize(
             session, actor, {Role.PLANNER, Role.DRIVER, Role.BUYER, Role.SUPPLIER}
         )
         if route_id:
-            return _route_response(session, _route(session, route_id, actor), actor)
+            return response(session, _route(session, route_id, actor))
         query = select(Route).where(Route.demo_run_id == actor.demo_run_id)
+        if state:
+            query = query.where(Route.state == state)
+        if active is not None:
+            final = ("CANCELLED", "OPERATIONALLY_COMPLETED")
+            query = query.where(
+                Route.state.not_in(final) if active else Route.state.in_(final)
+            )
         if actor.role == Role.DRIVER:
             query = query.join(RouteAssignment).where(
                 RouteAssignment.driver_id == actor.id
@@ -487,7 +591,7 @@ def get_routes(actor, factory, page=1, page_size=25, route_id=None):
         total = session.scalar(select(func.count()).select_from(query.subquery()))
         return Page(
             items=[
-                _route_response(session, r, actor)
+                response(session, r)
                 for r in session.scalars(
                     query.order_by(Route.created_at.desc(), Route.id)
                     .offset((page - 1) * page_size)
@@ -595,55 +699,11 @@ def route_command(route_id, command, data, key, actor, factory):
         for order in orders:
             session.refresh(order, with_for_update=True)
         if command == "pickup":
-            route.state = "PICKUP_IN_PROGRESS"
-            for line in _load_lines(session, route.id):
-                qty = line.separated_quantity - line.dispatched_quantity
-                if qty <= 0:
-                    fail("ALREADY_DISPATCHED", "Linha já despachada.")
-                item = session.get(OrderItem, line.order_item_id)
-                reservation = session.scalar(
-                    select(Reservation)
-                    .where(Reservation.id == item.reservation_id)
-                    .with_for_update()
-                )
-                projection = session.scalar(
-                    select(InventoryProjection)
-                    .where(InventoryProjection.id == reservation.projection_id)
-                    .with_for_update()
-                )
-                if (
-                    item.reserved_quantity < qty
-                    or projection.rotalog_reserved_not_reflected_quantity < qty
-                    or projection.external_sellable_quantity < qty
-                ):
-                    fail(
-                        "RESERVATION_INCONSISTENT",
-                        "Reserva insuficiente para a coleta.",
-                    )
-                line.dispatched_quantity += qty
-                item.reserved_quantity -= qty
-                reservation.consumed_quantity += qty
-                projection.rotalog_reserved_not_reflected_quantity -= qty
-                projection.external_sellable_quantity -= qty
-                projection.version += 1
-                session.add(
-                    CustodyEvent(
-                        route_id=route.id,
-                        fulfillment_line_id=line.id,
-                        actor_id=actor.id,
-                        kind="WAREHOUSE_TO_DRIVER",
-                        quantity=qty,
-                    )
-                )
-                session.get(Fulfillment, line.fulfillment_id).state = "DISPATCHED"
-            pickup = session.scalar(
-                select(RouteStop).where(
-                    RouteStop.route_id == route.id, RouteStop.kind == "PICKUP"
-                )
-            )
-            pickup.state = "COMPLETED"
-            for order in orders:
-                sync_order(session, order)
+            pickup_in_session(session, route, actor)
+        if command == "start":
+            route.started_at = datetime.now(UTC)
+        if command == "end-execution":
+            route.execution_ended_at = datetime.now(UTC)
         if command == "complete-operation":
             unresolved = session.scalar(
                 select(RouteStop.id).where(
@@ -673,6 +733,69 @@ def route_command(route_id, command, data, key, actor, factory):
         )
 
 
+def pickup_in_session(session, route, actor):
+    """Caso de uso físico compartilhado; transação é delimitada pelo chamador."""
+    from rotalog.logistics.cargo_service import record_receipt, validate_pickup
+
+    if route.state != "ACCEPTED":
+        fail("ROUTE_INVALID_STATE", "Recebimento exige aceite e não inicia a rota.")
+    validate_pickup(session, route, actor)
+    orders = _orders(session, route.id)
+    for order in orders:
+        session.refresh(order, with_for_update=True)
+    lines = _load_lines(session, route.id)
+    if not lines:
+        fail("CARGO_EMPTY", "Carga vazia não pode ser recebida.")
+    for line in lines:
+        qty = line.separated_quantity - line.dispatched_quantity
+        if qty <= 0:
+            fail("ALREADY_DISPATCHED", "Linha já despachada.")
+        item = session.get(OrderItem, line.order_item_id)
+        reservation = session.scalar(
+            select(Reservation)
+            .where(Reservation.id == item.reservation_id)
+            .with_for_update()
+        )
+        projection = session.scalar(
+            select(InventoryProjection)
+            .where(InventoryProjection.id == reservation.projection_id)
+            .with_for_update()
+        )
+        if (
+            item.reserved_quantity < qty
+            or projection.rotalog_reserved_not_reflected_quantity < qty
+            or projection.external_sellable_quantity < qty
+        ):
+            fail("RESERVATION_INCONSISTENT", "Reserva insuficiente para a coleta.")
+        line.dispatched_quantity += qty
+        item.reserved_quantity -= qty
+        reservation.consumed_quantity += qty
+        projection.rotalog_reserved_not_reflected_quantity -= qty
+        projection.external_sellable_quantity -= qty
+        projection.version += 1
+        session.add(
+            CustodyEvent(
+                route_id=route.id,
+                fulfillment_line_id=line.id,
+                actor_id=actor.id,
+                kind="WAREHOUSE_TO_DRIVER",
+                quantity=qty,
+            )
+        )
+        session.get(Fulfillment, line.fulfillment_id).state = "DISPATCHED"
+    pickup = session.scalar(
+        select(RouteStop).where(
+            RouteStop.route_id == route.id, RouteStop.kind == "PICKUP"
+        )
+    )
+    pickup.state = "COMPLETED"
+    route.state = "READY_TO_START"
+    record_receipt(session, route, actor)
+    for order in orders:
+        sync_order(session, order)
+        _event(session, order.id, actor, "CARGO_RECEIVED", route_id=str(route.id))
+
+
 def _attempt_context(session, attempt_id, actor, *, lock=False):
     query = select(DeliveryAttempt).where(DeliveryAttempt.id == attempt_id)
     attempt = session.scalar(query.with_for_update() if lock else query)
@@ -685,6 +808,11 @@ def _attempt_context(session, attempt_id, actor, *, lock=False):
         if order.buyer_organization_id != actor.organization_id:
             fail("ATTEMPT_NOT_FOUND", "Tentativa não encontrada.", 404)
     return attempt, stop, route
+
+
+def evidence_context(session, attempt_id, actor):
+    """Contexto público de tentativa para autorização no módulo de arquivos."""
+    return _attempt_context(session, attempt_id, actor)
 
 
 def _attempt_response(attempt):
@@ -829,7 +957,15 @@ def validate_image(content):
         )
 
 
-def upload_evidence(attempt_id, kind, content, actor, factory):
+def upload_evidence(attempt_id, kind, content, actor, factory, settings):
+    """Compatibilidade multipart/201: aguarda validação sintética sem locks SQL.
+
+    Novos clientes usam upload-intents/confirm-upload e aguardam o worker.
+    O adaptador legado executa o mesmo processador para seu arquivo específico.
+    """
+    from rotalog.operations import file_service
+    from rotalog.operations.file_schemas import UploadIntent
+
     mime = validate_image(content)  # CPU/decodificação fora da transação.
     digest = hashlib.sha256(content).hexdigest()
     with transactional_session(factory) as session:
@@ -853,17 +989,79 @@ def upload_evidence(attempt_id, kind, content, actor, factory):
         )
         if count >= 10:
             fail("EVIDENCE_LIMIT", "Limite de arquivos da tentativa atingido.", 422)
-        item = PrivateEvidence(
-            attempt_id=attempt.id,
-            uploaded_by=actor.id,
-            kind=kind,
-            content=content,
-            mime_type=mime,
-            sha256=digest,
+    data = UploadIntent(
+        purpose=f"DELIVERY_{kind}",
+        attempt_id=attempt_id,
+        size_bytes=len(content),
+        mime_type=mime,
+        sha256=digest,
+    )
+    key = f"legacy-evidence:{attempt_id}:{kind}:{digest}"
+    intent = file_service.create_intent(data, key, actor, factory, settings)
+    file_id = UUID(intent["file_id"])
+    file_service.upload_content(file_id, content, key, actor, factory, settings)
+    file_service.confirm_upload(file_id, key, actor, factory, settings)
+    deadline = time.monotonic() + 10
+    while True:
+        file_service.process_product_image_files(
+            factory, settings, limit=1, file_id=file_id
         )
-        session.add(item)
-        session.flush()
-        return _evidence_response(item)
+        status = file_service.get_status(file_id, actor, factory)
+        if status["status"] == "AVAILABLE":
+            break
+        if status["status"] == "REJECTED":
+            fail(
+                "EVIDENCE_REJECTED",
+                "Arquivo rejeitado pelo processamento sintético.",
+                422,
+            )
+        if time.monotonic() >= deadline:
+            fail(
+                "EVIDENCE_PROCESSING",
+                "Arquivo ainda em processamento; reenvie o mesmo conteúdo para reconciliar.",
+                503,
+            )
+        # Outro worker pode ter adquirido o lease. Espera curta, sempre fora do SQL.
+        time.sleep(0.05)
+    with transactional_session(factory) as session:
+        authorize(session, actor, {Role.DRIVER}, write=True)
+        attempt, _, _ = _attempt_context(session, attempt_id, actor, lock=True)
+        if attempt.state not in {"STARTED", "PROOF_PENDING"}:
+            fail("ATTEMPT_INVALID_STATE", "Prova já finalizada.")
+        return _evidence_response(
+            _attach_available_file(session, file_id, attempt.id, kind, actor)
+        )
+
+
+def _attach_available_file(session, file_id, attempt_id, kind, actor):
+    from rotalog.operations.file_service import available_attempt_file
+
+    item = session.get(PrivateEvidence, file_id)
+    if item is not None:
+        if item.attempt_id != attempt_id or item.kind != kind:
+            fail("EVIDENCE_NOT_FOUND", "Arquivo de outra tentativa/tipo.", 404)
+        return item
+    stored = available_attempt_file(session, file_id, attempt_id, kind, actor)
+    count = session.scalar(
+        select(func.count())
+        .select_from(PrivateEvidence)
+        .where(PrivateEvidence.attempt_id == attempt_id)
+    )
+    if count >= 10:
+        fail("EVIDENCE_LIMIT", "Limite de arquivos da tentativa atingido.", 422)
+    item = PrivateEvidence(
+        id=stored.id,
+        file_id=stored.id,
+        attempt_id=attempt_id,
+        uploaded_by=actor.id,
+        kind=kind,
+        mime_type=stored.mime_type,
+        sha256=stored.sha256,
+        content=b"",
+    )
+    session.add(item)
+    session.flush()
+    return item
 
 
 def _evidence_response(item):
@@ -876,14 +1074,19 @@ def _evidence_response(item):
     }
 
 
-def evidence(evidence_id, actor, factory):
+def evidence(evidence_id, actor, factory, settings):
     with transactional_session(factory) as session:
         authorize(session, actor, {Role.DRIVER, Role.BUYER, Role.SUPPLIER})
         item = session.get(PrivateEvidence, evidence_id)
         if item is None:
             fail("EVIDENCE_NOT_FOUND", "Arquivo não encontrado.", 404)
         _attempt_context(session, item.attempt_id, actor)
-        return item.content, item.mime_type
+        if item.file_id is None:
+            return item.content, item.mime_type  # Preserva arquivos legados existentes.
+        file_id = item.file_id
+    from rotalog.operations.file_service import read_content
+
+    return read_content(file_id, actor, factory, settings)
 
 
 def _distance(a, b, c, d):
@@ -955,11 +1158,7 @@ def _complete_proof(session, attempt_id, data, key, actor, settings):
             )
         )
         if not item:
-            fail(
-                "EVIDENCE_NOT_FOUND",
-                "Arquivo não pertence a esta tentativa ou tem tipo incorreto.",
-                404,
-            )
+            item = _attach_available_file(session, evidence_id, attempt.id, kind, actor)
         files.append(item)
     complete = bool(
         data.signature_id
