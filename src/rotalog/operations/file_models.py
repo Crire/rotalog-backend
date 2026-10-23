@@ -12,15 +12,28 @@ from rotalog.core.database import Base, TimestampMixin, UuidPrimaryKeyMixin
 class StoredFile(UuidPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "stored_file"
     __table_args__ = (
-        CheckConstraint("purpose = 'PRODUCT_IMAGE'", name="purpose_valid"),
+        CheckConstraint(
+            "purpose IN ('PRODUCT_IMAGE','DELIVERY_PHOTO','DELIVERY_SIGNATURE','CARGO_ISSUE_PHOTO')",
+            name="purpose_valid",
+        ),
+        CheckConstraint(
+            "(purpose = 'PRODUCT_IMAGE' AND product_id IS NOT NULL AND attempt_id IS NULL AND route_id IS NULL) OR (purpose IN ('DELIVERY_PHOTO','DELIVERY_SIGNATURE') AND product_id IS NULL AND attempt_id IS NOT NULL AND route_id IS NULL) OR (purpose = 'CARGO_ISSUE_PHOTO' AND product_id IS NULL AND attempt_id IS NULL AND route_id IS NOT NULL)",
+            name="context_valid",
+        ),
         CheckConstraint(
             "status IN ('PENDING_UPLOAD','QUARANTINED','SCANNING','AVAILABLE','REJECTED','RETENTION_HOLD','DELETION_PENDING','DELETED')",
             name="status_valid",
         ),
         CheckConstraint("size_bytes > 0 AND size_bytes <= 8388608", name="size_valid"),
     )
-    product_id: Mapped[UUID] = mapped_column(
+    product_id: Mapped[UUID | None] = mapped_column(
         ForeignKey("product.id", ondelete="RESTRICT"), index=True
+    )
+    attempt_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("delivery_attempt.id", ondelete="RESTRICT"), index=True
+    )
+    route_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("route.id", ondelete="RESTRICT"), index=True
     )
     demo_run_id: Mapped[UUID] = mapped_column(
         ForeignKey("demo_run.id", ondelete="RESTRICT")

@@ -1,5 +1,9 @@
 # Cadastro e acompanhamento até a entrega — demo V5
 
+Atualização mobile: para conferência global, ocorrências pré-coleta, GPS canônico e
+novos uploads privados, usar o [guia de integração mobile](mobile-integracao-v5.md).
+Os contratos básicos abaixo permanecem como referência do fluxo anterior compatível.
+
 Implementação nas branches `feat/demo-produtos-acompanhamento-entrega` de backend e frontend. Não altera workflows e não fecha ou mergeia PRs.
 
 ## Recorte e regras
@@ -79,7 +83,7 @@ Se a oferta for criada e o ajuste falhar, corrija pelo inventário: não repita 
 3. `POST /routes/{id}/accept`, depois `/pickup` e `/start`. Atualizar a versão a cada resposta.
 4. A coleta registra custódia e despacho das quantidades; o pedido passa a `DISPATCHED` ou `PARTIALLY_DISPATCHED`. O fornecedor acompanha em `/supplier-orders/{id}`, que contém `delivery_routes`, e na timeline.
 
-O tracking GPS legado continua disponível por seus endpoints antigos, mas não está automaticamente associado à execução canônica nova. O escopo desta entrega é progresso por eventos, não GPS contínuo da rota nova. Não usar a localização de uma rota legada como prova de outra.
+O tracking GPS legado continua disponível, sem associação automática às rotas canônicas. O incremento mobile oferece `/routes/{id}/location-batches` e `/tracking/current`/`history` para as rotas novas. Não usar a localização de uma rota legada como prova de outra; consultar o guia mobile para os contratos e permissões.
 
 ### 5. Motorista e comprador: recebimento integral comprovado
 
@@ -100,9 +104,9 @@ A área web do comprador e o app Android não foram implementados neste incremen
 
 ## Segurança dos arquivos da demo
 
-Arquivos ficam privados no PostgreSQL, limitados a dez por tentativa, 8 MiB por arquivo e 16 megapixels. O servidor valida formato e decodificação, não apenas extensão/MIME enviados pelo cliente; mantém hashes e serve por endpoint autenticado com `no-store`, attachment e `nosniff`. Referência: [segurança do Pillow](https://pillow.readthedocs.io/en/stable/handbook/security.html).
+Blobs antigos continuam privados no PostgreSQL. Novos arquivos usam o volume privado compartilhado com o worker; o multipart mantém o contrato como adaptador de compatibilidade. Mantêm-se limites de dez associações por tentativa, 8 MiB por arquivo e 16 megapixels, validação real de formato, hashes e download autenticado. O ciclo assíncrono para novos clientes está no guia mobile. Referência: [segurança do Pillow](https://pillow.readthedocs.io/en/stable/handbook/security.html).
 
-Esse adapter é para a demo: **não é object storage com URLs assinadas e scanner de malware do piloto**. Não usar fotos/assinaturas de pessoas reais nem publicar como solução pronta para produção. Há trilha transacional destes eventos, não auditoria global do projeto.
+O processamento é para a demo: **não é object storage com scanner de malware do piloto**. Não usar fotos/assinaturas de pessoas reais nem publicar como solução pronta para produção. Há trilha transacional destes eventos, não auditoria global do projeto.
 
 ## Verificação e pendências conhecidas
 

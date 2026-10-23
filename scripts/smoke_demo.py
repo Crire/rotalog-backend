@@ -16,10 +16,21 @@ from dotenv import load_dotenv
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--base-url", default="http://127.0.0.1:8000")
-    parser.add_argument(
+    delivery_options = parser.add_mutually_exclusive_group()
+    delivery_options.add_argument(
         "--with-delivery",
         action="store_true",
         help="Inclui rota manual, coleta e entrega integral com prova sintética",
+    )
+    delivery_options.add_argument(
+        "--with-mobile",
+        action="store_true",
+        help="Inclui conferência, divergência, recebimento, GPS canônico e prova via worker",
+    )
+    delivery_options.add_argument(
+        "--prepare-mobile",
+        action="store_true",
+        help="Cria cenário sintético e deixa a rota publicada para o motorista testar no app",
     )
     parser.add_argument(
         "--browser-origin",
@@ -42,7 +53,11 @@ def main() -> None:
     if not admin_password:
         parser.error("Defina ROTALOG_DEMO_PASSWORD; não há senha padrão")
     suffix = uuid4().hex[:12]
-    password = secrets.token_urlsafe(32)
+    password = os.getenv("ROTALOG_SMOKE_ACCOUNT_PASSWORD") or secrets.token_urlsafe(32)
+    if not 12 <= len(password) <= 1024:
+        parser.error(
+            "ROTALOG_SMOKE_ACCOUNT_PASSWORD deve ter de 12 a 1024 caracteres, quando configurada"
+        )
     checks = []
     with httpx.Client(base_url=args.base_url, timeout=20) as client:
 
@@ -291,7 +306,7 @@ def main() -> None:
             inventory["effective_sellable_quantity"] == 17
             and inventory["rotalog_reserved_not_reflected_quantity"] == 3
         )
-        if args.with_delivery:
+        if args.with_delivery or args.with_mobile or args.prepare_mobile:
             from smoke_delivery import exercise_delivery
 
             final, inventory = exercise_delivery(
@@ -305,6 +320,8 @@ def main() -> None:
                 fulfillment,
                 order,
                 offer,
+                mobile=args.with_mobile,
+                prepare_only=args.prepare_mobile,
             )
         unrelated, _ = login("fornecedor@demo.rotalog.invalid", admin_password)
         request(
@@ -401,6 +418,16 @@ def main() -> None:
                     "currency": "BRL",
                     "payment_provider": "SIMULATED",
                     "order_state": final["state"],
+                    "mobile_route_id": final.get("_mobile_route_id"),
+                    "synthetic_accounts": {
+                        "supplier_email": f"distribuidora.{suffix}@demo.rotalog.invalid",
+                        "buyer_email": f"comprador.{suffix}@demo.rotalog.invalid",
+                        "password_source": "ROTALOG_SMOKE_ACCOUNT_PASSWORD"
+                        if os.getenv("ROTALOG_SMOKE_ACCOUNT_PASSWORD")
+                        else "RANDOM_NOT_EXPORTED",
+                    }
+                    if args.prepare_mobile
+                    else None,
                     "stock_total": inventory["external_sellable_quantity"],
                     "stock_reserved": inventory[
                         "rotalog_reserved_not_reflected_quantity"

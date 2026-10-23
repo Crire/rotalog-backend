@@ -88,15 +88,30 @@ def publish(
 def routes(
     actor: CurrentUser,
     factory: SessionFactory,
+    settings: ApplicationSettings,
     page: PageNumber = 1,
     page_size: PageSize = 25,
+    state: Annotated[
+        str | None,
+        Query(
+            pattern=r"^(PUBLISHED|ACCEPTED|PICKUP_IN_PROGRESS|READY_TO_START|STARTED|EXECUTION_ENDED|OPERATIONALLY_COMPLETED|CANCELLED)$"
+        ),
+    ] = None,
+    active: bool | None = None,
 ):
-    return service.get_routes(actor, factory, page, page_size)
+    return service.get_routes(
+        actor, factory, page, page_size, state=state, active=active, settings=settings
+    )
 
 
 @router.get("/routes/{route_id}", response_model=RouteResponse)
-def route(route_id: UUID, actor: CurrentUser, factory: SessionFactory):
-    return service.get_routes(actor, factory, route_id=route_id)
+def route(
+    route_id: UUID,
+    actor: CurrentUser,
+    factory: SessionFactory,
+    settings: ApplicationSettings,
+):
+    return service.get_routes(actor, factory, route_id=route_id, settings=settings)
 
 
 @router.post("/routes/{route_id}/accept", response_model=RouteResponse)
@@ -204,16 +219,22 @@ def upload(
     attempt_id: UUID,
     actor: CurrentUser,
     factory: SessionFactory,
+    settings: ApplicationSettings,
     kind: Literal["PHOTO", "SIGNATURE"],
     file: Annotated[UploadFile, File()],
 ):
     content = file.file.read(service.MAX_EVIDENCE_BYTES + 1)
-    return service.upload_evidence(attempt_id, kind, content, actor, factory)
+    return service.upload_evidence(attempt_id, kind, content, actor, factory, settings)
 
 
 @router.get("/delivery-evidence/{evidence_id}")
-def evidence(evidence_id: UUID, actor: CurrentUser, factory: SessionFactory):
-    content, mime = service.evidence(evidence_id, actor, factory)
+def evidence(
+    evidence_id: UUID,
+    actor: CurrentUser,
+    factory: SessionFactory,
+    settings: ApplicationSettings,
+):
+    content, mime = service.evidence(evidence_id, actor, factory, settings)
     return Response(
         content=content,
         media_type=mime,

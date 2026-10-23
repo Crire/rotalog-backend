@@ -17,6 +17,9 @@ def exercise_delivery(
     fulfillment,
     order,
     offer,
+    *,
+    mobile=False,
+    prepare_only=False,
 ):
     planner, _ = login("planejador@demo.rotalog.invalid", password)
     driver, driver_login = login("motorista@demo.rotalog.invalid", password)
@@ -68,13 +71,31 @@ def exercise_delivery(
         headers=planner | {"Idempotency-Key": f"publish-{suffix}"},
         json={"expected_version": approved["version"]},
     )
-    for command in ["accept", "pickup", "start"]:
+    if prepare_only:
+        final = request("GET", f"/api/v1/supplier-orders/{order['id']}", headers=buyer)
+        final["_mobile_route_id"] = route["id"]
+        inventory = request(
+            "GET",
+            "/api/v1/inventory",
+            headers=supplier,
+            params={"offer_id": offer["id"]},
+        )["items"][0]
+        return final, inventory
+    for command in ["accept", "start"] if mobile else ["accept", "pickup", "start"]:
+        if mobile and command == "start":
+            from smoke_mobile import exercise_cargo
+
+            route = exercise_cargo(request, route, supplier, driver, suffix)
         route = request(
             "POST",
             f"/api/v1/routes/{route['id']}/{command}",
             headers=driver | {"Idempotency-Key": f"{command}-{suffix}"},
             json={"expected_version": route["version"]},
         )
+    if mobile:
+        from smoke_mobile import exercise_tracking
+
+        exercise_tracking(request, route, driver, suffix)
     stop = next(s for s in route["stops"] if s["kind"] == "DELIVERY")
     attempt = request(
         "POST",
@@ -97,14 +118,21 @@ def exercise_delivery(
     Image.new("RGB", (16, 16), "blue").save(stream, format="PNG")
     files = {}
     for kind in ["PHOTO", "SIGNATURE"]:
-        files[kind] = request(
-            "POST",
-            f"/api/v1/delivery-attempts/{attempt['id']}/evidence",
-            expected=201,
-            headers=driver,
-            params={"kind": kind},
-            files={"file": ("synthetic.png", stream.getvalue(), "image/png")},
-        )
+        if mobile:
+            from smoke_mobile import upload_evidence
+
+            files[kind] = upload_evidence(
+                request, attempt["id"], kind, stream.getvalue(), driver
+            )
+        else:
+            files[kind] = request(
+                "POST",
+                f"/api/v1/delivery-attempts/{attempt['id']}/evidence",
+                expected=201,
+                headers=driver,
+                params={"kind": kind},
+                files={"file": ("synthetic.png", stream.getvalue(), "image/png")},
+            )
     body = {
         "expected_version": attempt["version"],
         "captured_at": datetime.now(UTC).isoformat(),

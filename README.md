@@ -5,17 +5,27 @@ API do marketplace B2B de alimentos secos industrializados. Esta versão é um
 coordenadas, produtos, saldos e pagamentos de demonstração são **sintéticos**.
 Não cadastre dados pessoais reais nem use esta API para movimentar dinheiro real.
 
+## Backend online
+
+O backend está disponível online. Acesse a
+[documentação interativa da API (Swagger)](https://api.rotalog.madebyhermes.com/docs).
+
 Funciona: cadastro sintético, login, refresh/revogação de sessão, catálogo canônico,
 depósitos, ofertas, estoque/capacidade manual, reserva de checkout, compra com
 pagamento simulado, consulta/aceite/recusa de pedidos, separação, prontidão e
 rastreamento sintético de rota por GPS. O fluxo canônico da demo acrescenta
 planejamento manual aprovado/publicado, coleta com despacho/custódia, recebimento
 integral comprovado e consulta do progresso/timeline pelo pedido.
+O incremento mobile inclui manifesto, conferência global, divergências pré-coleta
+resolvidas pelo fornecedor e rastreamento canônico em lotes, sem misturar os IDs
+das rotas/GPS legados.
 O backend continua sendo a única porta de acesso aos dados para web/mobile.
 
 Imagens do catálogo: [contratos, upload privado, worker e galeria](docs/imagens-produtos-demo-v5.md).
 São imagens do produto canônico, distintas das provas de entrega. O processamento
 da demo é simplificado e aceita somente arquivos sintéticos; não é antivírus do piloto.
+
+Mobile: [manifesto, conferência, divergências, tracking canônico e compatibilidade](docs/mobile-integracao-v5.md).
 
 Não funciona ainda: entregas com divergências/retornos, disputa, auditoria global,
 relógio controlado/reset de cenários, MFA/recuperação de senha,
@@ -40,9 +50,9 @@ src/rotalog/
   inventory/        # depósito, projeção, ajuste nominal, reserva e capacidade
   ordering/         # CheckoutSession, Purchase, SupplierOrder, OrderItem, Fulfillment
   finance/          # Payment e PaymentAllocation exclusivamente simulados
-  operations/       # idempotência persistente; auditoria global pendente
-  demo/             # seed idempotente e worker de expiração
-  logistics/        # rota manual, custódia, prova privada e GPS legado sintético
+  operations/       # idempotência e arquivos privados; auditoria global pendente
+  demo/             # seed idempotente e worker de expiração/validação de arquivos
+  logistics/        # rotas, manifesto, conferência, custódia, prova e tracking
   disputes/         # reservado
   reviews/          # reservado
   integrations/     # reservado; sem chamadas a ERP/PSP/mapas reais
@@ -76,7 +86,7 @@ Em outro terminal, com o mesmo ambiente/arquivo `.env`:
 uv run --locked python -m rotalog.demo.worker
 ```
 
-O worker libera reservas de checkouts vencidos e expira pedidos ainda sem decisão,
+O worker também processa arquivos em quarentena, libera reservas de checkouts vencidos e expira pedidos ainda sem decisão,
 fazendo o reembolso **simulado**. O relógio é real nesta versão; não há integração
 com serviço financeiro ou matriz viária. A confirmação de pagamento também verifica
 expiração sob lock, sem depender do worker para impedir captura de reserva vencida.
@@ -117,6 +127,7 @@ Todas usam a senha fornecida por você ao seed:
 | `BUYER_ADMIN` | `comprador@demo.rotalog.invalid` |
 | `SUPPLIER_OPERATOR` | `fornecedor@demo.rotalog.invalid` |
 | `DRIVER` | `motorista@demo.rotalog.invalid` |
+| `ROUTE_PLANNER` | `planejador@demo.rotalog.invalid` |
 
 Swagger **Authorize** usa `POST /api/v1/auth/login` com formulário `username`
 (email) e `password`. O modo padrão, `client_type=native`, devolve access/refresh

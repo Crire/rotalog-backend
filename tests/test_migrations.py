@@ -1,5 +1,6 @@
 """Migrações reais em PostgreSQL: vazio, snapshots e preservação de valores."""
 
+import hashlib
 from decimal import Decimal
 from uuid import uuid4
 
@@ -11,6 +12,81 @@ from sqlalchemy.exc import IntegrityError
 from rotalog.catalog.models import Offer, Product
 from rotalog.core.database import transactional_session
 from rotalog.inventory.models import InventoryProjection
+
+
+def test_mobile_upgrade_preserves_previous_route_private_blob_and_product_file(
+    demo_client, alembic_config, database_url
+):
+    from uuid import UUID
+
+    from test_catalog_ordering import login, ok
+    from test_delivery import _image, prepared, started
+
+    from rotalog.logistics.delivery_models import Route
+
+    data = started(demo_client, prepared(demo_client))
+    admin, profile = login(demo_client)
+    route_id = data["route"]["id"]
+    attempt_id = data["attempt"]["id"]
+    product_id = data["order"]["items"][0]["product"]["id"]
+    evidence_id, file_id = uuid4(), uuid4()
+    content = _image()
+    digest = hashlib.sha256(content).hexdigest()
+    command.downgrade(alembic_config, "20261023_0008")
+    engine = sa.create_engine(database_url)
+    try:
+        with engine.begin() as c:
+            c.execute(
+                sa.text(
+                    "INSERT INTO private_evidence(id,attempt_id,uploaded_by,kind,mime_type,sha256,content) SELECT :id,:attempt,a.driver_id,'PHOTO','image/png',:digest,:content FROM delivery_attempt a WHERE a.id=:attempt"
+                ),
+                {
+                    "id": evidence_id,
+                    "attempt": UUID(attempt_id),
+                    "digest": digest,
+                    "content": content,
+                },
+            )
+            c.execute(
+                sa.text(
+                    "INSERT INTO stored_file(id,product_id,demo_run_id,organization_id,uploaded_by,purpose,status,size_bytes,mime_type,sha256,expires_at) SELECT :id,p.id,p.demo_run_id,u.organization_id,u.id,'PRODUCT_IMAGE','PENDING_UPLOAD',:size,'image/png',:digest,now()+interval '15 minutes' FROM product p JOIN identity_user u ON u.id=:admin WHERE p.id=:product"
+                ),
+                {
+                    "id": file_id,
+                    "size": len(content),
+                    "digest": digest,
+                    "admin": UUID(profile["id"]),
+                    "product": UUID(product_id),
+                },
+            )
+        command.upgrade(alembic_config, "head")
+        command.check(alembic_config)
+        assert (
+            demo_client.get(
+                f"/api/v1/delivery-evidence/{evidence_id}", headers=data["buyer"]
+            ).content
+            == content
+        )
+        assert (
+            ok(demo_client.get(f"/api/v1/files/{file_id}", headers=admin))["product_id"]
+            == product_id
+        )
+        route = ok(
+            demo_client.get(f"/api/v1/routes/{route_id}", headers=data["driver"])
+        )
+        assert route["state"] == "STARTED" and route["started_at"]
+        with transactional_session(demo_client.app.state.session_factory) as session:
+            assert session.get(Route, UUID(route_id)).started_at is not None
+        assert (
+            ok(
+                demo_client.get(
+                    f"/api/v1/routes/{route_id}/manifest", headers=data["driver"]
+                )
+            )["inspection_required"]
+            is False
+        )
+    finally:
+        engine.dispose()
 
 
 def test_migrations_run_on_empty_database(alembic_config, database_url):
@@ -38,6 +114,12 @@ def test_migrations_run_on_empty_database(alembic_config, database_url):
             "file_download_grant",
             "product_image",
             "product_image_event",
+            "cargo_inspection",
+            "cargo_issue",
+            "cargo_event",
+            "location_batch",
+            "route_location_point",
+            "current_route_position",
         } <= set(inspector.get_table_names())
         columns = {column["name"]: column for column in inspector.get_columns("offer")}
         assert isinstance(columns["amount_minor"]["type"], sa.BigInteger)
