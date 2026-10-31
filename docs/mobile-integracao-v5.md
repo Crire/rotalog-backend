@@ -17,7 +17,7 @@ Incremento exclusivo do backend. Base: `ANALISE-BACKEND-INTEGRACAO-ROTAS.md`, re
 
 Todos os caminhos abaixo têm prefixo `/api/v1`. Usar `/docs` ou `/openapi.json` da versão nova; manifesto, linhas, divergências e tracking têm schemas de resposta explícitos.
 
-Login nativo existente: `POST /auth/login?client_type=native`, formulário `username=<email>&password=<senha>`. Utilizar bearer token e refresh rotativo; serializar renovações no cliente. Não há autenticação por matrícula/telefone e não foi aberto cadastro público de motorista. O seed provisiona o motorista sintético e o planejador com a senha definida pelo responsável, sem defaults.
+Login nativo existente: `POST /auth/login?client_type=native`, formulário `username=<email>&password=<senha>`. Utilizar bearer token e refresh rotativo; serializar renovações no cliente. Não há autenticação por matrícula/telefone nem cadastro público de motorista. O planejador provisiona motoristas sintéticos por `POST /drivers`; o seed também provisiona o motorista e o planejador da demo com a senha definida pelo responsável, sem defaults.
 
 `GET /me` passa a publicar capacidades logísticas do `DRIVER` e `cargo:read/resolve` do fornecedor. Elas ajudam a interface, mas a API continua revalidando sessão, organização e atribuição em cada comando. Motorista não resolve a própria divergência; o planejador não recebe essa permissão por conveniência.
 

@@ -6,11 +6,13 @@ from uuid import UUID
 from fastapi import APIRouter, File, Header, Query, Response, UploadFile
 
 from rotalog.core.contracts import Page, Versioned
+from rotalog.identity import service as identity_service
 from rotalog.identity.dependencies import (
     ApplicationSettings,
     CurrentUser,
     SessionFactory,
 )
+from rotalog.identity.schemas import DriverProvisionRequest, UserResponse
 from rotalog.logistics import delivery_service as service
 from rotalog.logistics.delivery_schemas import (
     AttemptCreate,
@@ -43,6 +45,13 @@ def vehicles(actor: CurrentUser, factory: SessionFactory):
 @router.get("/drivers")
 def drivers(actor: CurrentUser, factory: SessionFactory):
     return service.drivers(actor, factory)
+
+
+@router.post("/drivers", response_model=UserResponse, status_code=201)
+def create_driver(
+    data: DriverProvisionRequest, actor: CurrentUser, factory: SessionFactory
+):
+    return identity_service.provision_driver(data, actor, factory)
 
 
 @router.post(

@@ -482,6 +482,40 @@ def test_planner_only_capacity_duplicate_load_and_stale_version(demo_client):
     )
 
 
+def test_planner_provisions_driver_and_other_roles_are_denied(demo_client):
+    planner, _ = login(demo_client, "planejador")
+    supplier, _ = account(demo_client, "cadastro-fornecedor", "SUPPLIER_OPERATOR")
+    payload = {
+        "email": "novo.motorista@demo.rotalog.invalid",
+        "password": "senha-inicial-sintetica-2026",
+        "name": "Motorista de Teste",
+    }
+
+    denied = demo_client.post("/api/v1/drivers", headers=supplier, json=payload)
+    assert denied.status_code == 403
+    public_registration = demo_client.post(
+        "/api/v1/auth/register",
+        json=payload
+        | {"organization_name": "Motoristas Sintéticos", "role": "DRIVER"},
+    )
+    assert public_registration.status_code == 422
+
+    created = ok(demo_client.post("/api/v1/drivers", headers=planner, json=payload), 201)
+    assert created["role"] == "DRIVER"
+    assert created["name"] == payload["name"]
+    assert created["organizations"][0]["role"] == "DRIVER"
+    assert any(
+        item["id"] == created["id"]
+        for item in ok(demo_client.get("/api/v1/drivers", headers=planner))
+    )
+
+    authenticated, user = login(
+        demo_client, "novo.motorista", "senha-inicial-sintetica-2026"
+    )
+    assert user["id"] == created["id"]
+    assert demo_client.get("/api/v1/me", headers=authenticated).json()["role"] == "DRIVER"
+
+
 def test_evidence_rejects_non_images_and_other_attempt(demo_client):
     data = started(demo_client, prepared(demo_client))
     endpoint = f"/api/v1/delivery-attempts/{data['attempt']['id']}/evidence"

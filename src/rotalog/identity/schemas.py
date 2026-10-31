@@ -46,6 +46,28 @@ class RegisterRequest(BaseModel):
         return value
 
 
+class DriverProvisionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    email: str = Field(
+        min_length=3, max_length=254, pattern=r"^[^\s@]+@[^\s@]+\.[^\s@]+$"
+    )
+    password: SecretStr = Field(min_length=12, max_length=1024)
+    name: NonBlankName
+
+    @field_validator("email", mode="before")
+    @classmethod
+    def normalize_email(cls, value: object) -> object:
+        return value.strip().lower() if isinstance(value, str) else value
+
+    @field_validator("email")
+    @classmethod
+    def require_synthetic_email(cls, value: str) -> str:
+        if not value.endswith(".invalid"):
+            raise ValueError("Use um email sintético com domínio terminado em .invalid")
+        return value
+
+
 class OrganizationAccess(BaseModel):
     id: UUID
     name: str
