@@ -16,6 +16,7 @@ from rotalog.core.database import transactional_session
 from rotalog.demo.service import require_active_run
 from rotalog.identity.models import AuthSession, LoginThrottle, RefreshToken, Role, User
 from rotalog.identity.schemas import (
+    DriverProvisionRequest,
     PasswordChange,
     RegisterRequest,
     TokenResponse,
@@ -135,6 +136,44 @@ def register(
             fail("EMAIL_ALREADY_REGISTERED", "Email já cadastrado.")
         grant_initial_membership(
             session, user_id=user.id, organization_id=organization.id, role=data.role
+        )
+        return _profile(session, user)
+
+
+def provision_driver(
+    data: DriverProvisionRequest,
+    actor: UserResponse,
+    factory: sessionmaker[Session],
+) -> UserResponse:
+    hashed = password_hash.hash(data.password.get_secret_value())
+    with transactional_session(factory) as session:
+        authorize(session, actor, {Role.PLANNER}, write=True)
+        organization = create_organization(
+            session,
+            name=data.name,
+            demo_run_id=actor.demo_run_id,
+            kind="INTERNAL",
+        )
+        user = session.scalar(
+            insert(User)
+            .values(
+                email=data.email,
+                name=data.name,
+                password_hash=hashed,
+                role=Role.DRIVER,
+                organization_id=organization.id,
+                demo_run_id=actor.demo_run_id,
+            )
+            .on_conflict_do_nothing(index_elements=[User.email])
+            .returning(User)
+        )
+        if user is None:
+            fail("EMAIL_ALREADY_REGISTERED", "Email já cadastrado.")
+        grant_initial_membership(
+            session,
+            user_id=user.id,
+            organization_id=organization.id,
+            role=Role.DRIVER,
         )
         return _profile(session, user)
 

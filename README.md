@@ -149,6 +149,12 @@ misturar os dois hosts torna o cookie cross-site e `SameSite=Lax` impede seu env
 vínculo autorizado; se omitido, usa a organização inicial da conta. Cada caso de
 uso revalida sessão e `Membership` na transação. UUID não é prova de acesso.
 
+O autocadastro em `POST /api/v1/auth/register` aceita somente comprador e fornecedor.
+Motoristas são provisionados pelo planejador em `POST /api/v1/drivers`, com email
+sintético `.invalid`, nome e senha inicial de pelo menos 12 caracteres. A resposta
+não inclui senha; compartilhe a senha inicial por canal privado e o motorista deve
+alterá-la após entrar.
+
 ## Fluxo de teste comprador/distribuidora
 
 Todos os caminhos abaixo têm prefixo `/api/v1` e constam no OpenAPI.
