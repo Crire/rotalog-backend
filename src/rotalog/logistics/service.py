@@ -8,6 +8,7 @@ from sqlalchemy import exists, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from rotalog.core.contracts import check_version, fail
+from rotalog.core.data_mode import is_synthetic_data
 from rotalog.core.database import transactional_session
 from rotalog.identity.models import Role, User
 from rotalog.identity.schemas import UserResponse
@@ -40,7 +41,7 @@ def _route_response(item: DeliveryRoute) -> dict:
         "last_longitude": item.last_longitude,
         "last_accuracy_meters": item.last_accuracy_meters,
         "last_location_at": item.last_location_at,
-        "is_synthetic": True,
+        "is_synthetic": is_synthetic_data(),
     }
 
 
@@ -246,7 +247,7 @@ def record_location(
             "accuracy_meters": str(point.accuracy_meters),
             "recorded_at": point.recorded_at.isoformat(),
             "created_at": point.created_at.isoformat(),
-            "is_synthetic": True,
+            "is_synthetic": is_synthetic_data(),
         }
         return finish_idempotency(session, actor, operation, key, digest, response)
 
@@ -278,5 +279,5 @@ def last_location(
             "accuracy_meters": point.accuracy_meters,
             "recorded_at": point.recorded_at,
             "is_stale": point.recorded_at < datetime.now(UTC) - LOCATION_STALE_AFTER,
-            "is_synthetic": True,
+            "is_synthetic": is_synthetic_data(),
         }

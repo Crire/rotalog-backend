@@ -39,6 +39,9 @@ class User(UuidPrimaryKeyMixin, TimestampMixin, Base):
     name: Mapped[str] = mapped_column(String(200))
     password_hash: Mapped[str] = mapped_column(String(255))
     role: Mapped[str] = mapped_column(String(32))
+    is_synthetic: Mapped[bool] = mapped_column(
+        Boolean, default=True, server_default="true"
+    )
     auth_version: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
     is_active: Mapped[bool] = mapped_column(
         Boolean, default=True, server_default="true"
@@ -93,6 +96,9 @@ class UserInvitation(UuidPrimaryKeyMixin, TimestampMixin, Base):
         ),
     )
     email: Mapped[str] = mapped_column(String(254), index=True)
+    is_synthetic: Mapped[bool] = mapped_column(
+        Boolean, default=True, server_default="true"
+    )
     role: Mapped[str] = mapped_column(String(32))
     organization_id: Mapped[UUID] = mapped_column(ForeignKey("organization.id"))
     demo_run_id: Mapped[UUID] = mapped_column(ForeignKey("demo_run.id"))

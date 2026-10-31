@@ -16,6 +16,7 @@ from sqlalchemy import exists, func, select
 
 from rotalog.core.config import Settings
 from rotalog.core.contracts import Page, check_version, fail
+from rotalog.core.data_mode import is_synthetic_data
 from rotalog.core.database import transactional_session
 from rotalog.identity.models import Role, User
 from rotalog.identity.service import authorize, require_supplier_organization
@@ -122,7 +123,7 @@ def route_summary(session, route):
         "driver_id": str(assignment.driver_id),
         "vehicle_id": str(assignment.vehicle_id),
         "updated_at": route.updated_at.isoformat(),
-        "is_synthetic": True,
+        "is_synthetic": is_synthetic_data(),
     }
 
 
@@ -248,7 +249,7 @@ def vehicles(data, actor, factory):
                 id=str(item.id),
                 supplier_organization_id=str(actor.organization_id),
                 **data.model_dump(),
-                is_synthetic=True,
+                is_synthetic=is_synthetic_data(),
             )
         return [
             {
@@ -258,7 +259,7 @@ def vehicles(data, actor, factory):
                 "package_units": v.package_units,
                 "weight_grams": v.weight_grams,
                 "volume_cm3": v.volume_cm3,
-                "is_synthetic": True,
+                "is_synthetic": is_synthetic_data(),
             }
             for v in session.scalars(
                 select(Vehicle)
@@ -278,7 +279,7 @@ def drivers(actor, factory):
         authorize(session, actor, {Role.PLANNER})
         require_supplier_organization(session, actor)
         return [
-            {"id": str(u.id), "name": u.name, "is_synthetic": True}
+            {"id": str(u.id), "name": u.name, "is_synthetic": is_synthetic_data()}
             for u in session.scalars(
                 select(User)
                 .join(Membership, Membership.user_id == User.id)
@@ -540,7 +541,7 @@ def _plan_response(plan):
         "supplier_organization_id": str(plan.supplier_organization_id)
         if plan.supplier_organization_id
         else None,
-        "is_synthetic": True,
+        "is_synthetic": is_synthetic_data(),
     }
 
 
@@ -970,7 +971,7 @@ def _attempt_response(attempt):
         "route_stop_id": str(attempt.route_stop_id),
         "state": attempt.state,
         "version": attempt.version,
-        "is_synthetic": True,
+        "is_synthetic": is_synthetic_data(),
     }
 
 
@@ -1070,7 +1071,7 @@ def authorize_receiver(
         return {
             "receiver_code": code,
             "expires_at": attempt.authorization_expires_at.isoformat(),
-            "is_synthetic": True,
+            "is_synthetic": is_synthetic_data(),
         }
 
 
@@ -1461,7 +1462,7 @@ def get_proof(attempt_id, actor, factory):
             "validated_at": proof.validated_at,
             "contestation_deadline": proof.contestation_deadline,
             "evidence": proof.payload,
-            "is_synthetic": True,
+            "is_synthetic": is_synthetic_data(),
         }
 
 

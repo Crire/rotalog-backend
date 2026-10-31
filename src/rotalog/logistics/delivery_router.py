@@ -64,9 +64,12 @@ def drivers(actor: CurrentUser, factory: SessionFactory):
 
 @router.post("/drivers", response_model=UserResponse, status_code=201)
 def create_driver(
-    data: DriverProvisionRequest, actor: CurrentUser, factory: SessionFactory
+    data: DriverProvisionRequest,
+    actor: CurrentUser,
+    factory: SessionFactory,
+    settings: ApplicationSettings,
 ):
-    return identity_service.provision_driver(data, actor, factory)
+    return identity_service.provision_driver(data, actor, factory, settings)
 
 
 @router.post(

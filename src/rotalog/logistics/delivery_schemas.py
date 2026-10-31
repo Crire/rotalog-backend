@@ -15,6 +15,7 @@ from rotalog.core.contracts import (
     Reason,
     Versioned,
 )
+from rotalog.core.data_mode import is_synthetic_data
 from rotalog.logistics.cargo_schemas import CargoSummary, ManifestLineResponse
 from rotalog.logistics.tracking_schemas import TrackingCurrent
 
@@ -50,7 +51,7 @@ class EligibleFulfillmentResponse(BaseModel):
     weight_grams: int
     volume_cm3: int
     lines: list[EligibleFulfillmentLine]
-    is_synthetic: Literal[True] = True
+    is_synthetic: bool = Field(default_factory=is_synthetic_data)
 
 
 class Destination(Input):
@@ -139,7 +140,7 @@ class RouteSummary(BaseModel):
     driver_id: UUID
     vehicle_id: UUID
     updated_at: datetime
-    is_synthetic: Literal[True] = True
+    is_synthetic: bool = Field(default_factory=is_synthetic_data)
 
 
 class StopResponse(BaseModel):
@@ -176,7 +177,7 @@ class PlanResponse(BaseModel):
     snapshot: dict
     reason: str
     supplier_organization_id: UUID | None = None
-    is_synthetic: Literal[True] = True
+    is_synthetic: bool = Field(default_factory=is_synthetic_data)
 
 
 class EvidenceResponse(BaseModel):
@@ -192,4 +193,4 @@ class AttemptResponse(BaseModel):
     route_stop_id: UUID
     state: str
     version: int
-    is_synthetic: Literal[True] = True
+    is_synthetic: bool = Field(default_factory=is_synthetic_data)

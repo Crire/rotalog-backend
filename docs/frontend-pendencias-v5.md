@@ -15,7 +15,7 @@ Este documento registra as decisões implementadas. O OpenAPI contém os schemas
 | P1 | Categorias | Literal fixo no schema | Cadastro administrativo e consulta de códigos |
 | P1 | Produtos | Criar/publicar, sem gestão posterior | PATCH versionado, UNPUBLISHED e lista administrativa |
 | P1 | Usuários/convites | Autocadastro comprador/fornecedor e criação de motorista | Provisionamento de administrador/planejador e convite de uso único |
-| P1 | Autenticação de produção | Identidade exclusiva da demo | **Pendente de definição com o solicitante**; restrições da demo preservadas |
+| P1 | Autenticação de produção | Identidade exclusiva da demo | Cadastro/login/sessões com emails reais; bootstrap e compatibilidade com dados de teste |
 
 ## Convenções
 
@@ -141,22 +141,25 @@ consumo são atômicos, inclusive com aceites concorrentes. Depois, o cliente
 faz login pelo contrato existente. Revogar convite aceito retorna 409.
 
 O backend entrega o segredo ao administrador e não envia email. A distribuição
-fica com a operação. Emails continuam sintéticos (.invalid); senhas de 12 a
+fica com a operação. Somente o modo demo exige emails sintéticos (.invalid);
+produção aceita emails reais. Senhas de 12 a
 1024 caracteres. Após provisionamento direto, usam-se os comandos existentes
 de troca de senha e revogação de sessões.
 
-## Autenticação fora da demonstração — decisão pendente
+## Autenticação fora da demonstração
 
-Foi solicitada definição entre identidade local e provedor externo e se a
-liberação de produção pertence a esta entrega. Não há decisão registrada.
-Esta mudança não libera staging/production nem aceita identidades reais.
-JWT, sessão, refresh rotativo, logout, CSRF, organizações e permissões continuam
-funcionando na demo. O contrato de produção depende dessa definição; o PDF
-não especifica provedor, migração de identidade, recuperação ou bootstrap real.
+Identidade local com senha, JWT, refresh rotativo, logout, troca de senha,
+sessões persistentes e Membership funciona em staging/production, sem habilitar
+o seed de demonstração. Administradores e planejadores são provisionados ou
+convidados; o primeiro administrador é criado por comando local no servidor.
+O uso atual continua destinado a testes de frontend/mobile, com pagamento
+simulado. Contas reais podem compartilhar os dados de teste existentes sem
+alterar pedidos, senhas ou classificá-los como transações reais. Veja
+[a configuração de produção e os contratos](autenticacao-producao.md).
 
 ## Migração e integração
 
-Aplicar `alembic upgrade head` (20261031_0010) e reexecutar o seed somente na
+Aplicar `alembic upgrade head` (20261031_0011) e reexecutar o seed somente na
 demonstração. A migração cria categorias preservando códigos históricos e a
 categoria padrão, amplia o estado do produto sem apagar dados, recupera o
 fornecedor das propostas pela origem e cria convites sem persistir segredos.
@@ -186,12 +189,14 @@ Validação local em PostgreSQL 17 com PostGIS, em bancos temporários separados
 dos dados do projeto:
 
 - `ruff check src tests migrations scripts`: aprovado.
-- `pytest -q`: **117 testes aprovados**, sem skips; inclui `alembic check` nos
+- `pytest -q`: **134 testes aprovados**, sem skips; inclui `alembic check` nos
   cenários de migração e preservação de dados.
 - `smoke_demo.py --with-delivery`: **68 verificações HTTP**, pedido DELIVERED.
 - `smoke_demo.py --prepare-mobile`: **54 verificações HTTP**; login das contas
   geradas de planejador/motorista e acesso exclusivo à rota também conferidos.
 - `git diff --check`: aprovado.
+- Autenticação em production: startup sem seed, bootstrap e worker aprovados,
+  com mais **30 verificações HTTP** de contas reais e dados de teste preservados.
 
 A suíte emite um aviso de depreciação do transporte httpx no TestClient do
 Starlette; ele não impede os testes.

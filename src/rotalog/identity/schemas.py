@@ -20,7 +20,7 @@ NonBlankName = Annotated[
 ]
 
 
-class SyntheticEmailInput(BaseModel):
+class EmailInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
     email: str = Field(
         min_length=3, max_length=254, pattern=r"^[^\s@]+@[^\s@]+\.[^\s@]+$"
@@ -31,16 +31,9 @@ class SyntheticEmailInput(BaseModel):
     def normalize_email(cls, value: object) -> object:
         return value.strip().lower() if isinstance(value, str) else value
 
-    @field_validator("email")
-    @classmethod
-    def require_synthetic_email(cls, value: str) -> str:
-        if not value.endswith(".invalid"):
-            raise ValueError("Use um email sintético com domínio terminado em .invalid")
-        return value
 
-
-class RegisterRequest(SyntheticEmailInput):
-    """Autocadastro exclusivo da demo: uma nova conta com organização própria."""
+class RegisterRequest(EmailInput):
+    """Autocadastro de comprador/fornecedor em organização própria."""
 
     password: SecretStr = Field(min_length=12, max_length=1024)
     name: NonBlankName
@@ -48,7 +41,7 @@ class RegisterRequest(SyntheticEmailInput):
     role: Literal["BUYER_ADMIN", "SUPPLIER_OPERATOR"]
 
 
-class DriverProvisionRequest(SyntheticEmailInput):
+class DriverProvisionRequest(EmailInput):
     password: SecretStr = Field(min_length=12, max_length=1024)
     name: NonBlankName
 
@@ -58,7 +51,7 @@ class UserProvisionRequest(DriverProvisionRequest):
     role: Literal["ROTALOG_ADMIN", "ROUTE_PLANNER"]
 
 
-class InvitationCreate(SyntheticEmailInput):
+class InvitationCreate(EmailInput):
     organization_id: UUID
     role: Literal["ROTALOG_ADMIN", "ROUTE_PLANNER"]
     expires_in_hours: int = Field(default=48, strict=True, ge=1, le=168)
@@ -99,7 +92,8 @@ class UserResponse(BaseModel):
     demo_run_id: UUID
     session_id: UUID | None = Field(default=None, exclude=True)
     auth_version: int = Field(default=1, exclude=True)
-    is_synthetic: Literal[True] = True
+    is_synthetic: bool = True
+    data_is_synthetic: bool = True
 
 
 class TokenResponse(BaseModel):

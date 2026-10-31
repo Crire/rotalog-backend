@@ -6,6 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from rotalog.catalog.image_schemas import ProductImageResponse
 from rotalog.core.contracts import Input, Name, PositiveQuantity, Versioned
+from rotalog.core.data_mode import is_synthetic_data
 from rotalog.core.money import MoneyInput
 
 CategoryCode = Annotated[
@@ -80,7 +81,7 @@ class ProductResponse(BaseModel):
     publication_state: str
     version: int
     demo_run_id: UUID
-    is_synthetic: Literal[True] = True
+    is_synthetic: bool = Field(default_factory=is_synthetic_data)
     images: list[ProductImageResponse] = Field(default_factory=list)
     primary_image: ProductImageResponse | None = None
 
@@ -114,7 +115,7 @@ class OfferResponse(BaseModel):
     version: int
     is_active: bool
     demo_run_id: UUID
-    is_synthetic: Literal[True] = True
+    is_synthetic: bool = Field(default_factory=is_synthetic_data)
     product_image: ProductImageResponse | None = None
 
 
