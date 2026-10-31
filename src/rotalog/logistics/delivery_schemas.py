@@ -31,6 +31,28 @@ class VehicleCreate(Input):
     volume_cm3: PositiveQuantity
 
 
+class EligibleFulfillmentLine(BaseModel):
+    id: UUID
+    order_item_id: UUID
+    separated_quantity: int
+    product_snapshot: dict
+
+
+class EligibleFulfillmentResponse(BaseModel):
+    id: UUID
+    supplier_order_id: UUID
+    supplier_organization_id: UUID
+    buyer_organization_id: UUID
+    warehouse_id: UUID
+    state: str
+    version: int
+    package_units: int
+    weight_grams: int
+    volume_cm3: int
+    lines: list[EligibleFulfillmentLine]
+    is_synthetic: Literal[True] = True
+
+
 class Destination(Input):
     supplier_order_id: UUID
     address: Annotated[str, Field(min_length=5, max_length=500)]
@@ -153,6 +175,7 @@ class PlanResponse(BaseModel):
     version: int
     snapshot: dict
     reason: str
+    supplier_organization_id: UUID | None = None
     is_synthetic: Literal[True] = True
 
 

@@ -83,3 +83,21 @@ class RefreshToken(UuidPrimaryKeyMixin, TimestampMixin, Base):
     )
     token_hash: Mapped[str] = mapped_column(String(64), unique=True)
     used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class UserInvitation(UuidPrimaryKeyMixin, TimestampMixin, Base):
+    __tablename__ = "user_invitation"
+    __table_args__ = (
+        CheckConstraint(
+            "role IN ('ROTALOG_ADMIN', 'ROUTE_PLANNER')", name="role_valid"
+        ),
+    )
+    email: Mapped[str] = mapped_column(String(254), index=True)
+    role: Mapped[str] = mapped_column(String(32))
+    organization_id: Mapped[UUID] = mapped_column(ForeignKey("organization.id"))
+    demo_run_id: Mapped[UUID] = mapped_column(ForeignKey("demo_run.id"))
+    invited_by: Mapped[UUID] = mapped_column(ForeignKey("identity_user.id"))
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    accepted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

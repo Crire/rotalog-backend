@@ -27,9 +27,11 @@ da demo é simplificado e aceita somente arquivos sintéticos; não é antivíru
 
 Mobile: [manifesto, conferência, divergências, tracking canônico e compatibilidade](docs/mobile-integracao-v5.md).
 
+Frontend: [levantamento, novos endpoints, isolamento por fornecedor e convites](docs/frontend-pendencias-v5.md).
+
 Não funciona ainda: entregas com divergências/retornos, disputa, auditoria global,
 relógio controlado/reset de cenários, MFA/recuperação de senha,
-convites organizacionais e integrações reais. Não confundir encerramento da rota
+autenticação de produção e integrações reais. Não confundir encerramento da rota
 legada de GPS com confirmação de entrega. Web/mobile podem usar os novos contratos
 para o recebimento integral; fluxos ainda ausentes devem ser claramente identificados,
 sem misturar mocks com pedidos reais da API. Veja o [guia de cadastro e entrega](docs/demo-produtos-entrega.md).
@@ -150,6 +152,9 @@ vínculo autorizado; se omitido, usa a organização inicial da conta. Cada caso
 uso revalida sessão e `Membership` na transação. UUID não é prova de acesso.
 
 O autocadastro em `POST /api/v1/auth/register` aceita somente comprador e fornecedor.
+Administradores podem provisionar administradores/planejadores com vínculo
+organizacional em `POST /api/v1/admin/users` ou emitir convites de uso único
+em `POST /api/v1/admin/invitations`. Veja os contratos no guia do frontend.
 Motoristas são provisionados pelo planejador em `POST /api/v1/drivers`, com email
 sintético `.invalid`, nome e senha inicial de pelo menos 12 caracteres. A resposta
 não inclui senha; compartilhe a senha inicial por canal privado e o motorista deve

@@ -20,52 +20,64 @@ NonBlankName = Annotated[
 ]
 
 
-class RegisterRequest(BaseModel):
-    """Autocadastro exclusivo da demo: uma nova conta com organização própria."""
-
+class SyntheticEmailInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
-
     email: str = Field(
         min_length=3, max_length=254, pattern=r"^[^\s@]+@[^\s@]+\.[^\s@]+$"
     )
+
+    @field_validator("email", mode="before")
+    @classmethod
+    def normalize_email(cls, value: object) -> object:
+        return value.strip().lower() if isinstance(value, str) else value
+
+    @field_validator("email")
+    @classmethod
+    def require_synthetic_email(cls, value: str) -> str:
+        if not value.endswith(".invalid"):
+            raise ValueError("Use um email sintético com domínio terminado em .invalid")
+        return value
+
+
+class RegisterRequest(SyntheticEmailInput):
+    """Autocadastro exclusivo da demo: uma nova conta com organização própria."""
+
     password: SecretStr = Field(min_length=12, max_length=1024)
     name: NonBlankName
     organization_name: NonBlankName
     role: Literal["BUYER_ADMIN", "SUPPLIER_OPERATOR"]
 
-    @field_validator("email", mode="before")
-    @classmethod
-    def normalize_email(cls, value: object) -> object:
-        return value.strip().lower() if isinstance(value, str) else value
 
-    @field_validator("email")
-    @classmethod
-    def require_synthetic_email(cls, value: str) -> str:
-        if not value.endswith(".invalid"):
-            raise ValueError("Use um email sintético com domínio terminado em .invalid")
-        return value
-
-
-class DriverProvisionRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    email: str = Field(
-        min_length=3, max_length=254, pattern=r"^[^\s@]+@[^\s@]+\.[^\s@]+$"
-    )
+class DriverProvisionRequest(SyntheticEmailInput):
     password: SecretStr = Field(min_length=12, max_length=1024)
     name: NonBlankName
 
-    @field_validator("email", mode="before")
-    @classmethod
-    def normalize_email(cls, value: object) -> object:
-        return value.strip().lower() if isinstance(value, str) else value
 
-    @field_validator("email")
-    @classmethod
-    def require_synthetic_email(cls, value: str) -> str:
-        if not value.endswith(".invalid"):
-            raise ValueError("Use um email sintético com domínio terminado em .invalid")
-        return value
+class UserProvisionRequest(DriverProvisionRequest):
+    organization_id: UUID
+    role: Literal["ROTALOG_ADMIN", "ROUTE_PLANNER"]
+
+
+class InvitationCreate(SyntheticEmailInput):
+    organization_id: UUID
+    role: Literal["ROTALOG_ADMIN", "ROUTE_PLANNER"]
+    expires_in_hours: int = Field(default=48, strict=True, ge=1, le=168)
+
+
+class InvitationAccept(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    token: SecretStr = Field(min_length=32, max_length=256)
+    name: NonBlankName
+    password: SecretStr = Field(min_length=12, max_length=1024)
+
+
+class InvitationResponse(BaseModel):
+    id: UUID
+    email: str
+    role: Role
+    organization_id: UUID
+    expires_at: datetime
+    invitation_token: str = Field(repr=False)
 
 
 class OrganizationAccess(BaseModel):

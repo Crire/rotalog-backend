@@ -14,7 +14,14 @@ from rotalog.core.config import Settings
 from rotalog.core.contracts import fail
 from rotalog.core.database import transactional_session
 from rotalog.demo.service import require_active_run
-from rotalog.identity.models import AuthSession, LoginThrottle, RefreshToken, Role, User
+from rotalog.identity.models import (
+    AuthSession,
+    LoginThrottle,
+    RefreshToken,
+    Role,
+    User,
+    UserInvitation,
+)
 from rotalog.identity.schemas import (
     DriverProvisionRequest,
     PasswordChange,
@@ -43,7 +50,14 @@ CAPABILITIES = {
         "cargo:read",
         "cargo:resolve",
     ],
-    Role.ADMIN: ["catalog:read", "product:write", "warehouse:review"],
+    Role.ADMIN: [
+        "catalog:read",
+        "product:write",
+        "warehouse:review",
+        "category:write",
+        "user:provision",
+        "invitation:manage",
+    ],
     Role.DRIVER: [
         "route:read",
         "route:accept",
@@ -58,7 +72,15 @@ CAPABILITIES = {
         "tracking:write",
         "delivery:execute",
     ],
-    Role.PLANNER: ["route:plan", "route:publish", "fleet:manage"],
+    Role.PLANNER: [
+        "route:read",
+        "route:plan",
+        "route:approve",
+        "route:publish",
+        "fleet:manage",
+        "cargo:read",
+        "tracking:read",
+    ],
 }
 
 
@@ -148,12 +170,7 @@ def provision_driver(
     hashed = password_hash.hash(data.password.get_secret_value())
     with transactional_session(factory) as session:
         authorize(session, actor, {Role.PLANNER}, write=True)
-        organization = create_organization(
-            session,
-            name=data.name,
-            demo_run_id=actor.demo_run_id,
-            kind="INTERNAL",
-        )
+        require_supplier_organization(session, actor)
         user = session.scalar(
             insert(User)
             .values(
@@ -161,7 +178,7 @@ def provision_driver(
                 name=data.name,
                 password_hash=hashed,
                 role=Role.DRIVER,
-                organization_id=organization.id,
+                organization_id=actor.organization_id,
                 demo_run_id=actor.demo_run_id,
             )
             .on_conflict_do_nothing(index_elements=[User.email])
@@ -172,10 +189,194 @@ def provision_driver(
         grant_initial_membership(
             session,
             user_id=user.id,
-            organization_id=organization.id,
+            organization_id=actor.organization_id,
             role=Role.DRIVER,
         )
         return _profile(session, user)
+
+
+def require_supplier_organization(session, actor):
+    organization = session.scalar(
+        select(Organization).where(
+            Organization.id == actor.organization_id,
+            Organization.demo_run_id == actor.demo_run_id,
+            Organization.kind == "SUPPLIER",
+        )
+    )
+    if organization is None:
+        fail(
+            "SUPPLIER_MEMBERSHIP_REQUIRED",
+            "Selecione um vínculo com um fornecedor.",
+            403,
+        )
+    return organization
+
+
+def _provisioning_organization(session, organization_id, run_id, role):
+    organization = session.scalar(
+        select(Organization)
+        .where(
+            Organization.id == organization_id,
+            Organization.demo_run_id == run_id,
+        )
+        .with_for_update()
+    )
+    if organization is None:
+        fail("ORGANIZATION_NOT_FOUND", "Organização não encontrada.", 404)
+    expected = "SUPPLIER" if role == Role.PLANNER else "INTERNAL"
+    if organization.kind != expected:
+        fail(
+            "ORGANIZATION_ROLE_INVALID",
+            f"Este papel exige organização {expected}.",
+            422,
+        )
+    return organization
+
+
+def _insert_provisioned_user(session, *, email, name, hashed, role, organization):
+    user = session.scalar(
+        insert(User)
+        .values(
+            email=email,
+            name=name,
+            password_hash=hashed,
+            role=role,
+            organization_id=organization.id,
+            demo_run_id=organization.demo_run_id,
+        )
+        .on_conflict_do_nothing(index_elements=[User.email])
+        .returning(User)
+    )
+    if user is None:
+        fail("EMAIL_ALREADY_REGISTERED", "Email já cadastrado.")
+    grant_initial_membership(
+        session, user_id=user.id, organization_id=organization.id, role=role
+    )
+    return _profile(session, user)
+
+
+def provision_user(data, actor, factory):
+    hashed = password_hash.hash(data.password.get_secret_value())
+    with transactional_session(factory) as session:
+        authorize(session, actor, {Role.ADMIN}, write=True)
+        organization = _provisioning_organization(
+            session, data.organization_id, actor.demo_run_id, data.role
+        )
+        return _insert_provisioned_user(
+            session,
+            email=data.email,
+            name=data.name,
+            hashed=hashed,
+            role=data.role,
+            organization=organization,
+        )
+
+
+def create_invitation(data, actor, factory):
+    raw = token_urlsafe(48)
+    now = datetime.now(UTC)
+    with transactional_session(factory) as session:
+        authorize(session, actor, {Role.ADMIN}, write=True)
+        _provisioning_organization(
+            session, data.organization_id, actor.demo_run_id, data.role
+        )
+        if session.scalar(select(User.id).where(User.email == data.email)):
+            fail("EMAIL_ALREADY_REGISTERED", "Email já cadastrado.")
+        session.execute(
+            update(UserInvitation)
+            .where(
+                UserInvitation.email == data.email,
+                UserInvitation.organization_id == data.organization_id,
+                UserInvitation.accepted_at.is_(None),
+                UserInvitation.revoked_at.is_(None),
+            )
+            .values(revoked_at=now)
+        )
+        invitation = UserInvitation(
+            email=data.email,
+            role=data.role,
+            organization_id=data.organization_id,
+            demo_run_id=actor.demo_run_id,
+            invited_by=actor.id,
+            token_hash=token_hash(raw),
+            expires_at=now + timedelta(hours=data.expires_in_hours),
+        )
+        session.add(invitation)
+        session.flush()
+        return {
+            "id": invitation.id,
+            "email": invitation.email,
+            "role": invitation.role,
+            "organization_id": invitation.organization_id,
+            "expires_at": invitation.expires_at,
+            "invitation_token": raw,
+        }
+
+
+def _require_open_invitation(invitation):
+    if (
+        invitation is None
+        or invitation.accepted_at
+        or invitation.revoked_at
+        or invitation.expires_at <= datetime.now(UTC)
+    ):
+        fail("INVITATION_INVALID", "Convite inválido, expirado ou já utilizado.", 410)
+
+
+def accept_invitation(data, factory, settings):
+    require_demo(settings)
+    digest = token_hash(data.token.get_secret_value())
+    # Recusa segredos inválidos antes do Argon2, sem manter locks durante o hash.
+    with transactional_session(factory) as session:
+        invitation = session.scalar(
+            select(UserInvitation).where(UserInvitation.token_hash == digest)
+        )
+        _require_open_invitation(invitation)
+    hashed = password_hash.hash(data.password.get_secret_value())
+    with transactional_session(factory) as session:
+        # A organização é travada antes do convite, como na criação/revogação.
+        invitation = session.scalar(
+            select(UserInvitation).where(UserInvitation.token_hash == digest)
+        )
+        _require_open_invitation(invitation)
+        organization = _provisioning_organization(
+            session, invitation.organization_id, invitation.demo_run_id, invitation.role
+        )
+        session.refresh(invitation, with_for_update=True)
+        _require_open_invitation(invitation)
+        require_active_run(session, invitation.demo_run_id)
+        result = _insert_provisioned_user(
+            session,
+            email=invitation.email,
+            name=data.name,
+            hashed=hashed,
+            role=invitation.role,
+            organization=organization,
+        )
+        invitation.accepted_at = datetime.now(UTC)
+        return result
+
+
+def revoke_invitation(invitation_id, actor, factory):
+    with transactional_session(factory) as session:
+        authorize(session, actor, {Role.ADMIN}, write=True)
+        invitation = session.scalar(
+            select(UserInvitation).where(
+                UserInvitation.id == invitation_id,
+                UserInvitation.demo_run_id == actor.demo_run_id,
+            )
+        )
+        if invitation is None:
+            fail("INVITATION_NOT_FOUND", "Convite não encontrado.", 404)
+        session.scalar(
+            select(Organization)
+            .where(Organization.id == invitation.organization_id)
+            .with_for_update()
+        )
+        session.refresh(invitation, with_for_update=True)
+        if invitation.accepted_at:
+            fail("INVITATION_ALREADY_ACCEPTED", "Convite já aceito.")
+        invitation.revoked_at = datetime.now(UTC)
 
 
 @lru_cache(maxsize=1)
